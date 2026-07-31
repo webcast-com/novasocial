@@ -16,6 +16,8 @@ import {
   flashEvents,
   ideas,
   ideaVotes,
+  userFollows,
+  savedPosts,
 } from "@/db/schema";
 import { count, eq, isNull } from "drizzle-orm";
 import { hashPassword } from "@/lib/auth";
@@ -660,7 +662,39 @@ export async function ensureNewFeaturesSeeded() {
       }
     }
 
-    // D. Ensure Flash Events exist
+    // D. Seed lightweight creator connections and private reading lists.
+    // They have no points attached: social relevance should remain authentic.
+    const followCount = await db.select({ val: count() }).from(userFollows);
+    if ((followCount[0]?.val ?? 0) === 0) {
+      const socialMembers = await db.select().from(users).orderBy(users.id).limit(5);
+      const [elena, marcus, priya, devon, maya] = socialMembers;
+      if (elena && marcus && priya) {
+        const followRows = [
+          { followerId: elena.id, followedId: marcus.id },
+          { followerId: elena.id, followedId: priya.id },
+          { followerId: marcus.id, followedId: elena.id },
+          { followerId: priya.id, followedId: elena.id },
+          ...(devon ? [{ followerId: devon.id, followedId: elena.id }] : []),
+          ...(maya ? [{ followerId: maya.id, followedId: elena.id }, { followerId: maya.id, followedId: marcus.id }] : []),
+        ];
+        await db.insert(userFollows).values(followRows);
+      }
+    }
+
+    const savedPostCount = await db.select({ val: count() }).from(savedPosts);
+    if ((savedPostCount[0]?.val ?? 0) === 0) {
+      const socialMembers = await db.select().from(users).orderBy(users.id).limit(2);
+      const feedPosts = await db.select({ id: posts.id }).from(posts).orderBy(posts.id).limit(3);
+      if (socialMembers[0] && socialMembers[1] && feedPosts.length >= 2) {
+        await db.insert(savedPosts).values([
+          { userId: socialMembers[0].id, postId: feedPosts[1].id },
+          { userId: socialMembers[0].id, postId: feedPosts[2]?.id ?? feedPosts[0].id },
+          { userId: socialMembers[1].id, postId: feedPosts[0].id },
+        ]);
+      }
+    }
+
+    // E. Ensure Flash Events exist
     const eCount = await db.select({ val: count() }).from(flashEvents);
     if ((eCount[0]?.val ?? 0) === 0) {
       await db.insert(flashEvents).values([

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { PostItem, User } from "@/types";
 import { 
   MessageSquare, 
@@ -11,20 +11,19 @@ import {
   Send, 
   Check, 
   Zap, 
-  ExternalLink, 
   Copy, 
-  Globe,
-  MessageCircle,
-  Flame,
-  ThumbsUp,
-  PartyPopper,
-  Smile,
   Image as ImageIcon,
   Code,
   BarChart2,
   Video,
   CheckCircle2,
-  Terminal
+  Terminal,
+  Bookmark,
+  BookmarkCheck,
+  UsersRound,
+  Mail,
+  SendHorizontal,
+  Loader2
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
@@ -76,14 +75,64 @@ export default function CommunityStream({
   const [commentInput, setCommentInput] = useState<Record<number, string>>({});
   const [commentingPostId, setCommentingPostId] = useState<number | null>(null);
 
-  // Share dropdown state
+  // Share, save, and feed-scope state
   const [shareDropdownPostId, setShareDropdownPostId] = useState<number | null>(null);
+  const [feedScope, setFeedScope] = useState<"all" | "following" | "saved">("all");
+  const [scopedPosts, setScopedPosts] = useState<PostItem[]>([]);
+  const [loadingScope, setLoadingScope] = useState(false);
+  const [savingPostIds, setSavingPostIds] = useState<number[]>([]);
 
   const categories = ["All", "Ideas", "Show & Tell", "Announcements", "Tutorials", "General"];
+  const visiblePosts = feedScope === "all" ? posts : scopedPosts;
+  const filteredPosts = selectedCategory === "All"
+    ? visiblePosts
+    : visiblePosts.filter((p) => p.category === selectedCategory);
 
-  const filteredPosts = selectedCategory === "All" 
-    ? posts 
-    : posts.filter((p) => p.category === selectedCategory);
+  const loadScopedFeed = async (scope = feedScope) => {
+    if (scope === "all") {
+      await onRefreshPosts();
+      return;
+    }
+    setLoadingScope(true);
+    try {
+      const res = await fetch(`/api/posts?feed=${scope}`);
+      const data = await res.json();
+      if (data.success) {
+        setScopedPosts(data.posts || []);
+      } else {
+        onShowToast(data.error || "Could not load this feed.", undefined, true);
+      }
+    } catch {
+      onShowToast("Could not load this feed.", undefined, true);
+    } finally {
+      setLoadingScope(false);
+    }
+  };
+
+  useEffect(() => {
+    if (feedScope === "all") return;
+    // Schedule the network state transition after the current render commits.
+    // This also lets a quick scope change cancel an obsolete request.
+    const timer = window.setTimeout(() => {
+      void loadScopedFeed(feedScope);
+    }, 0);
+    return () => window.clearTimeout(timer);
+    // The scope drives the request; other dependencies are intentionally read
+    // at call time to avoid refetching every time the global feed refreshes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feedScope]);
+
+  const changeFeedScope = (scope: "all" | "following" | "saved") => {
+    if (scope !== "all" && !currentUser) {
+      onShowToast("Sign in to view your Following and Saved feeds.", undefined, true);
+      return;
+    }
+    setFeedScope(scope);
+  };
+
+  const refreshVisibleFeed = async () => {
+    await loadScopedFeed();
+  };
 
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,7 +189,7 @@ export default function CommunityStream({
         setMediaUrlInput("");
         setCodeSnippetInput("");
         setMediaTypeOption("none");
-        onRefreshPosts();
+        await refreshVisibleFeed();
         if (data.reward) {
           onReward(data.reward);
         }
@@ -172,7 +221,7 @@ export default function CommunityStream({
       });
       const data = await res.json();
       if (data.success) {
-        onRefreshPosts();
+        await refreshVisibleFeed();
         if (data.reward && data.reward.pointsAwarded > 0) {
           onReward(data.reward);
         } else {
@@ -204,7 +253,7 @@ export default function CommunityStream({
       });
       const data = await res.json();
       if (data.success) {
-        onRefreshPosts();
+        await refreshVisibleFeed();
         if (data.reward && data.reward.pointsAwarded > 0) {
           onReward(data.reward);
         } else if (data.message) {
@@ -216,7 +265,40 @@ export default function CommunityStream({
     }
   };
 
-  const handleShare = async (postId: number, platform: string) => {
+  const openShareDestination = (post: PostItem, platform: string) => {
+    const shareUrl = `${window.location.origin}/?post=${post.id}`;
+    const sharedText = `${post.title} — via VibePulse`;
+    const url = encodeURIComponent(shareUrl);
+    const text = encodeURIComponent(sharedText);
+
+    if (platform === "copy_link") {
+      navigator.clipboard?.writeText(shareUrl);
+      onShowToast("Share link copied to your clipboard.");
+      return;
+    }
+    if (platform === "native") {
+      if (navigator.share) {
+        navigator.share({ title: post.title, text: sharedText, url: shareUrl }).catch(() => {});
+      } else {
+        navigator.clipboard?.writeText(shareUrl);
+        onShowToast("Your browser does not support native sharing, so the link was copied instead.");
+      }
+      return;
+    }
+
+    const destinations: Record<string, string> = {
+      x: `https://twitter.com/intent/tweet?text=${text}&url=${url}`,
+      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${url}`,
+      whatsapp: `https://wa.me/?text=${encodeURIComponent(`${sharedText} ${shareUrl}`)}`,
+      telegram: `https://t.me/share/url?url=${url}&text=${text}`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${url}`,
+      email: `mailto:?subject=${text}&body=${encodeURIComponent(`${sharedText}\n\n${shareUrl}`)}`,
+    };
+    const destination = destinations[platform];
+    if (destination) window.open(destination, "_blank", "noopener,noreferrer");
+  };
+
+  const handleShare = async (post: PostItem, platform: string) => {
     if (!currentUser) {
       onShowToast("Please select an active profile first", undefined, true);
       return;
@@ -227,24 +309,60 @@ export default function CommunityStream({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "share",
-          postId,
-          userId: currentUser.id,
+          postId: post.id,
           platform,
         }),
       });
       const data = await res.json();
       if (data.success) {
         setShareDropdownPostId(null);
-        onRefreshPosts();
-        if (platform === "copy_link") {
-          navigator.clipboard?.writeText(window.location.origin);
-        }
+        openShareDestination(post, platform);
+        await refreshVisibleFeed();
         if (data.reward) {
           onReward(data.reward);
         }
+      } else {
+        onShowToast(data.error || "Share could not be recorded.", undefined, true);
       }
     } catch (err) {
       onShowToast(String(err), undefined, true);
+    }
+  };
+
+  const handleSavePost = async (post: PostItem) => {
+    if (!currentUser) {
+      onShowToast("Sign in to save posts to your private library.", undefined, true);
+      return;
+    }
+    if (savingPostIds.includes(post.id)) return;
+
+    setSavingPostIds((ids) => [...ids, post.id]);
+    try {
+      const res = await fetch("/api/social", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "toggle_save", postId: post.id }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        onShowToast(data.error || "Could not update your saved posts.", undefined, true);
+        return;
+      }
+
+      if (feedScope === "all") {
+        // The global list is parent-owned, so update its local presentation
+        // after a fresh response rather than mutating a prop.
+        await onRefreshPosts();
+      } else if (feedScope === "saved" && !data.isBookmarked) {
+        setScopedPosts((items) => items.filter((item) => item.id !== post.id));
+      } else {
+        setScopedPosts((items) => items.map((item) => item.id === post.id ? { ...item, isBookmarked: data.isBookmarked } : item));
+      }
+      onShowToast(data.message || "Saved posts updated.");
+    } catch {
+      onShowToast("Could not update your saved posts.", undefined, true);
+    } finally {
+      setSavingPostIds((ids) => ids.filter((id) => id !== post.id));
     }
   };
 
@@ -274,7 +392,7 @@ export default function CommunityStream({
       const data = await res.json();
       if (data.success) {
         setCommentInput((prev) => ({ ...prev, [postId]: "" }));
-        onRefreshPosts();
+        await refreshVisibleFeed();
         if (data.reward) {
           onReward(data.reward);
         }
@@ -328,29 +446,50 @@ export default function CommunityStream({
         </motion.button>
       </motion.div>
 
-      {/* Category Filter Toolbar */}
-      <div className="flex items-center justify-between gap-4 flex-wrap pb-2 border-b border-slate-800">
+      {/* Feed scope and topic filters */}
+      <div className="space-y-4 border-b border-slate-800 pb-4">
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+          <div className="inline-flex w-full rounded-2xl border border-slate-800 bg-slate-900/80 p-1 sm:w-auto">
+            {[
+              { id: "all" as const, label: "Community", icon: Sparkles },
+              { id: "following" as const, label: "Following", icon: UsersRound },
+              { id: "saved" as const, label: "Saved", icon: Bookmark },
+            ].map((scope) => {
+              const active = feedScope === scope.id;
+              return (
+                <button
+                  key={scope.id}
+                  onClick={() => changeFeedScope(scope.id)}
+                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-black transition sm:flex-none ${active ? "bg-indigo-600 text-white shadow" : "text-slate-400 hover:text-slate-200"}`}
+                >
+                  <scope.icon className="h-3.5 w-3.5" /> {scope.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="text-xs font-medium text-slate-400">
+            {loadingScope ? "Refreshing feed…" : <>Showing <span className="font-bold text-white">{filteredPosts.length}</span> posts</>}
+          </div>
+        </div>
+
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mr-2 hidden sm:inline">Filter Topic:</span>
+          <span className="mr-2 hidden text-xs font-bold uppercase tracking-wider text-slate-400 sm:inline">Filter topic:</span>
           {categories.map((cat) => {
             const isActive = selectedCategory === cat;
             return (
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
-                className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                className={`whitespace-nowrap rounded-xl border px-4 py-1.5 text-xs font-bold transition-all ${
                   isActive
-                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30 border border-indigo-400/30"
-                    : "bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800"
+                    ? "border-indigo-400/30 bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                    : "border-slate-800 bg-slate-900/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
                 }`}
               >
                 {cat}
               </button>
             );
           })}
-        </div>
-        <div className="text-xs text-slate-400 font-medium">
-          Showing <span className="text-white font-bold">{filteredPosts.length}</span> active posts
         </div>
       </div>
 
@@ -359,8 +498,12 @@ export default function CommunityStream({
         {filteredPosts.length === 0 ? (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-3xl p-12 text-center max-w-lg mx-auto border border-slate-800/80">
             <Sparkles className="w-12 h-12 text-slate-600 mx-auto mb-3 animate-pulse" />
-            <h3 className="text-lg font-bold text-slate-200">No posts in this topic yet</h3>
-            <p className="text-sm text-slate-400 mt-1 mb-6">Be the trailblazer! Post the first update in this category to earn +50 points instantly.</p>
+            <h3 className="text-lg font-bold text-slate-200">
+              {feedScope === "following" ? "Your Following feed is quiet" : feedScope === "saved" ? "No saved posts in this view" : "No posts in this topic yet"}
+            </h3>
+            <p className="text-sm text-slate-400 mt-1 mb-6">
+              {feedScope === "following" ? "Visit a member profile and follow creators whose updates you want to see here." : feedScope === "saved" ? "Use the bookmark button on any valuable post to build your private reading list." : "Be the trailblazer! Post the first update in this category to earn +50 points instantly."}
+            </p>
             <button
               onClick={() => setShowCreateModal(true)}
               className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-md hover:bg-indigo-500 transition-all inline-flex items-center gap-2"
@@ -570,6 +713,20 @@ export default function CommunityStream({
                       </span>
                     </button>
 
+                    <button
+                      onClick={() => handleSavePost(post)}
+                      disabled={savingPostIds.includes(post.id)}
+                      title={post.isBookmarked ? "Remove from saved posts" : "Save to private library"}
+                      className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all disabled:opacity-60 ${
+                        post.isBookmarked
+                          ? "border-amber-500/40 bg-amber-500/15 text-amber-300"
+                          : "border-slate-700 bg-slate-800/80 text-slate-300 hover:bg-slate-700"
+                      }`}
+                    >
+                      {savingPostIds.includes(post.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : post.isBookmarked ? <BookmarkCheck className="w-4 h-4" /> : <Bookmark className="w-4 h-4" />}
+                      <span className="hidden md:inline">{post.isBookmarked ? "Saved" : "Save"}</span>
+                    </button>
+
                     <div className="relative">
                       <button
                         onClick={() => setShareDropdownPostId(isShareOpen ? null : post.id)}
@@ -582,30 +739,26 @@ export default function CommunityStream({
                         </span>
                       </button>
 
-                      {/* Share options dropdown */}
+                      {/* External share intents preserve platform-native flows. */}
                       {isShareOpen && (
-                        <div className="absolute right-0 bottom-full mb-2 w-48 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-2 z-30 animate-fadeIn">
-                          <div className="text-[10px] font-extrabold uppercase text-slate-400 px-2.5 py-1 border-b border-slate-800 mb-1">
-                            Earn +30 points:
+                        <div className="absolute bottom-full right-0 z-30 mb-2 w-64 rounded-2xl border border-slate-700 bg-slate-900 p-2 shadow-2xl animate-fadeIn">
+                          <div className="mb-1 border-b border-slate-800 px-2.5 py-1 text-[10px] font-extrabold uppercase text-slate-400">
+                            Share externally · +30 points
                           </div>
-                          <button
-                            onClick={() => handleShare(post.id, "copy_link")}
-                            className="w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-bold text-slate-200 hover:bg-slate-800 transition-all text-left"
-                          >
-                            <Copy className="w-3.5 h-3.5 text-indigo-400" /> Copy Share Link
+                          <button onClick={() => handleShare(post, "copy_link")} className="w-full flex items-center gap-2.5 rounded-xl p-2 text-left text-xs font-bold text-slate-200 transition-all hover:bg-slate-800">
+                            <Copy className="w-3.5 h-3.5 text-indigo-400" /> Copy direct link
                           </button>
-                          <button
-                            onClick={() => handleShare(post.id, "twitter")}
-                            className="w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-bold text-slate-200 hover:bg-slate-800 transition-all text-left"
-                          >
-                            <MessageCircle className="w-3.5 h-3.5 text-blue-400" /> Share to X / Social
+                          <button onClick={() => handleShare(post, "native")} className="w-full flex items-center gap-2.5 rounded-xl p-2 text-left text-xs font-bold text-slate-200 transition-all hover:bg-slate-800">
+                            <SendHorizontal className="w-3.5 h-3.5 text-violet-400" /> Device share sheet
                           </button>
-                          <button
-                            onClick={() => handleShare(post.id, "linkedin")}
-                            className="w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-bold text-slate-200 hover:bg-slate-800 transition-all text-left"
-                          >
-                            <Globe className="w-3.5 h-3.5 text-sky-400" /> Post to LinkedIn / Web
-                          </button>
+                          <div className="my-1 grid grid-cols-2 gap-1 border-t border-slate-800 pt-2">
+                            <button onClick={() => handleShare(post, "whatsapp")} className="rounded-xl p-2 text-left text-[11px] font-bold text-emerald-300 transition hover:bg-emerald-500/10">🟢 WhatsApp</button>
+                            <button onClick={() => handleShare(post, "telegram")} className="rounded-xl p-2 text-left text-[11px] font-bold text-sky-300 transition hover:bg-sky-500/10">✈️ Telegram</button>
+                            <button onClick={() => handleShare(post, "x")} className="rounded-xl p-2 text-left text-[11px] font-bold text-slate-200 transition hover:bg-slate-800">𝕏 X</button>
+                            <button onClick={() => handleShare(post, "linkedin")} className="rounded-xl p-2 text-left text-[11px] font-bold text-blue-300 transition hover:bg-blue-500/10">in LinkedIn</button>
+                            <button onClick={() => handleShare(post, "facebook")} className="rounded-xl p-2 text-left text-[11px] font-bold text-indigo-300 transition hover:bg-indigo-500/10">f Facebook</button>
+                            <button onClick={() => handleShare(post, "email")} className="rounded-xl p-2 text-left text-[11px] font-bold text-rose-300 transition hover:bg-rose-500/10"><Mail className="mr-1 inline h-3.5 w-3.5" />Email</button>
+                          </div>
                         </div>
                       )}
                     </div>

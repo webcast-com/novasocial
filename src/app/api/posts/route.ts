@@ -1,26 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { posts, comments, reactions, shares } from "@/db/schema";
-import { desc, eq, inArray } from "drizzle-orm";
+import { posts, comments, reactions, shares, savedPosts, userFollows } from "@/db/schema";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { awardPoints } from "@/lib/gamification";
 import { publish } from "@/lib/realtime";
-import { requireUser } from "@/lib/auth";
+import { getSessionUser, requireUser } from "@/lib/auth";
 import { hitRateLimit, rateLimitResponse } from "@/lib/ratelimit";
 
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const category = searchParams.get("category");
+    const feed = searchParams.get("feed") || "all";
+    const sessionUser = await getSessionUser(request);
 
-    let allPosts;
-    if (category && category !== "All") {
-      allPosts = await db.select().from(posts).where(eq(posts.category, category)).orderBy(desc(posts.createdAt));
-    } else {
-      allPosts = await db.select().from(posts).orderBy(desc(posts.createdAt));
+    // A signed-in member can switch from the global feed to creators they
+    // follow, or to their private saved-post library. The session—not a userId
+    // query parameter—always determines both collections.
+    const filters = [];
+    if (category && category !== "All") filters.push(eq(posts.category, category));
+
+    if (feed === "following" || feed === "saved") {
+      if (!sessionUser) {
+        return NextResponse.json({ success: false, error: "Sign in to use this feed." }, { status: 401 });
+      }
+
+      const ids = feed === "following"
+        ? (await db.select({ id: userFollows.followedId }).from(userFollows).where(eq(userFollows.followerId, sessionUser.id))).map((row) => row.id)
+        : (await db.select({ id: savedPosts.postId }).from(savedPosts).where(eq(savedPosts.userId, sessionUser.id))).map((row) => row.id);
+
+      if (ids.length === 0) {
+        return NextResponse.json({ success: true, posts: [], feed });
+      }
+      filters.push(feed === "following" ? inArray(posts.userId, ids) : inArray(posts.id, ids));
     }
 
+    const whereClause = filters.length === 0 ? undefined : filters.length === 1 ? filters[0] : and(...filters);
+    const allPosts = whereClause
+      ? await db.select().from(posts).where(whereClause).orderBy(desc(posts.createdAt))
+      : await db.select().from(posts).orderBy(desc(posts.createdAt));
+
     if (allPosts.length === 0) {
-      return NextResponse.json({ success: true, posts: [] });
+      return NextResponse.json({ success: true, posts: [], feed });
     }
 
     const postIds = allPosts.map((p) => p.id);
@@ -36,6 +57,15 @@ export async function GET(request: NextRequest) {
       .select()
       .from(reactions)
       .where(inArray(reactions.postId, postIds));
+
+    const bookmarkedPostIds = new Set<number>();
+    if (sessionUser) {
+      const memberBookmarks = await db
+        .select({ postId: savedPosts.postId })
+        .from(savedPosts)
+        .where(and(eq(savedPosts.userId, sessionUser.id), inArray(savedPosts.postId, postIds)));
+      for (const bookmark of memberBookmarks) bookmarkedPostIds.add(bookmark.postId);
+    }
 
     // Map them together
     const enrichedPosts = allPosts.map((post) => {
@@ -63,6 +93,7 @@ export async function GET(request: NextRequest) {
         reactionsList: postReactions,
         reactionsBreakdown,
         reactedUserIds: Array.from(reactedUserIds),
+        isBookmarked: bookmarkedPostIds.has(post.id),
         pollOptions: parsedOptions,
         pollVotes: parsedVotes,
       };

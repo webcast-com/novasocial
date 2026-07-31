@@ -268,3 +268,35 @@ export const ideaVotes = pgTable(
     index("idea_votes_user_id_idx").on(table.userId),
   ]
 );
+
+// Social graph and private saves. These actions intentionally carry no points:
+// people should follow creators and save useful posts because they are valuable,
+// not because they can be farmed for rewards.
+export const userFollows = pgTable(
+  "user_follows",
+  {
+    id: serial("id").primaryKey(),
+    followerId: integer("follower_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    followedId: integer("followed_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("user_follows_follower_followed_unique").on(table.followerId, table.followedId),
+    index("user_follows_follower_id_idx").on(table.followerId),
+    index("user_follows_followed_id_idx").on(table.followedId),
+  ]
+);
+
+export const savedPosts = pgTable(
+  "saved_posts",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    postId: integer("post_id").references(() => posts.id, { onDelete: "cascade" }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("saved_posts_user_post_unique").on(table.userId, table.postId),
+    index("saved_posts_user_id_idx").on(table.userId),
+  ]
+);

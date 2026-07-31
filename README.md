@@ -15,7 +15,16 @@ The **Ideas Hub & Public Roadmap** turns community feedback into a structured de
 - Authors receive a private notification when an administrator advances their idea, and live clients refresh through SSE.
 - Submissions earn a capped, configurable `idea_submitted` reward rule, available in the admin Rule Engine.
 
-Run `npm run db:push` after pulling this upgrade so PostgreSQL creates the `ideas` and `idea_votes` tables.
+## Social platform expansion: creator connections and sharing
+
+The community feed now behaves more like a complete social product:
+
+- Follow or unfollow creators from their profile; their posts appear in a personalized **Following** feed.
+- Save useful posts into a private **Saved** reading list. Saves are never exposed to other members.
+- Use platform-native sharing intents for **WhatsApp, Telegram, X, LinkedIn, Facebook, email**, device share sheets, or a direct-copy link.
+- Shares remain an earned activity through the existing capped `post_shared` rule; follows and saves deliberately earn no points, preventing social-graph farming.
+
+Run `npm run db:push` after pulling these upgrades so PostgreSQL creates the `ideas`, `idea_votes`, `user_follows`, and `saved_posts` tables.
 
 ---
 

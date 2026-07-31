@@ -72,6 +72,13 @@ export interface PostItem {
   pollQuestion?: string | null;
   pollOptions?: string[];
   pollVotes?: Record<string, number>;
+  isBookmarked?: boolean;
+}
+
+export interface SocialProfileStats {
+  followerCount: number;
+  followingCount: number;
+  isFollowing: boolean;
 }
 
 export type IdeaStatus = "open" | "planned" | "in_progress" | "shipped" | "declined";
