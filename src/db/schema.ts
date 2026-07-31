@@ -1,9 +1,10 @@
-import { pgTable, serial, text, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, boolean, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   username: text("username").notNull().unique(),
+  passwordHash: text("password_hash"),
   avatarUrl: text("avatar_url"),
   role: text("role").default("user").notNull(),
   referralCode: text("referral_code").notNull().unique(),
@@ -65,13 +66,44 @@ export const comments = pgTable("comments", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const reactions = pgTable("reactions", {
-  id: serial("id").primaryKey(),
-  postId: integer("post_id").references(() => posts.id, { onDelete: "cascade" }).notNull(),
-  userId: integer("user_id").references(() => users.id).notNull(),
-  reactionType: text("reaction_type").default("like").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+export const reactions = pgTable(
+  "reactions",
+  {
+    id: serial("id").primaryKey(),
+    postId: integer("post_id").references(() => posts.id, { onDelete: "cascade" }).notNull(),
+    userId: integer("user_id").references(() => users.id).notNull(),
+    reactionType: text("reaction_type").default("like").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("reactions_post_user_unique").on(table.postId, table.userId)]
+);
+
+// One row per user per poll — enforces one vote per user per poll at the DB level.
+export const pollVotes = pgTable(
+  "poll_votes",
+  {
+    id: serial("id").primaryKey(),
+    postId: integer("post_id").references(() => posts.id, { onDelete: "cascade" }).notNull(),
+    userId: integer("user_id").references(() => users.id).notNull(),
+    option: text("option").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("poll_votes_post_user_unique").on(table.postId, table.userId)]
+);
+
+// Server-side session tokens. Only a SHA-256 hash of the bearer token is stored,
+// so a database leak does not expose usable session tokens.
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (table) => [index("sessions_user_id_idx").on(table.userId)]
+);
 
 export const shares = pgTable("shares", {
   id: serial("id").primaryKey(),

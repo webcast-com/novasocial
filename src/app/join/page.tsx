@@ -1,37 +1,45 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Sparkles, Gift, Zap, UserPlus, ArrowRight, Shield } from "lucide-react";
+import { Gift, ArrowRight, Lock } from "lucide-react";
 
 function JoinContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const refCode = searchParams.get("ref") || "VIBE_2026";
+  const refCode = searchParams.get("ref") || "";
 
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !username.trim()) {
+    if (!name.trim() || !username.trim() || !password) {
       setError("Please fill out all required fields");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters long.");
       return;
     }
 
     setLoading(true);
     setError("");
     try {
-      // Create account
-      const res = await fetch("/api/users", {
+      // Register a REAL account: password is hashed server-side, a session
+      // cookie is issued, and the referral bounty is attributed atomically.
+      const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
           username: username.trim(),
+          password,
+          referralCode: refCode || undefined,
         }),
       });
       const data = await res.json();
@@ -42,29 +50,10 @@ function JoinContent() {
         return;
       }
 
-      const newUser = data.user;
-
-      // Check if we can find a user with this refCode and simulate sign-up completion
-      const allRes = await fetch("/api/users");
-      const allData = await allRes.json();
-      if (allData.success) {
-        const referrer = allData.users.find((u: any) => u.referralCode.toLowerCase() === refCode.toLowerCase());
-        if (referrer && referrer.id !== newUser.id) {
-          await fetch("/api/referrals", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "simulate_signup",
-              referrerId: referrer.id,
-            }),
-          });
-        }
-      }
-
       setSuccess(true);
       setTimeout(() => {
         router.push("/");
-      }, 1800);
+      }, 1600);
     } catch (err: any) {
       setError(String(err));
     } finally {
@@ -94,7 +83,7 @@ function JoinContent() {
               You were invited with code: <strong className="text-amber-300 underline font-mono">{refCode}</strong>
             </p>
             <p className="text-[11px] text-slate-400 mt-1">
-              Joining awards your friend <strong>+200 loyalty points</strong>!
+              Joining awards your friend <strong>+200 loyalty points</strong> — and you start with a <strong className="text-emerald-300">+50 pts welcome bonus</strong>!
             </p>
           </div>
         )}
@@ -105,7 +94,7 @@ function JoinContent() {
               🎉
             </div>
             <h3 className="text-xl font-black text-white">Welcome to VibePulse!</h3>
-            <p className="text-xs text-slate-300">Account created & referral bounty attributed. Redirecting to interactive dashboard...</p>
+            <p className="text-xs text-slate-300">Account created & secured{refCode ? ", referral bounty attributed" : ""}. Signing you in...</p>
           </div>
         ) : (
           <form onSubmit={handleJoin} className="space-y-4">
@@ -123,6 +112,7 @@ function JoinContent() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Alex Mercer"
+                maxLength={80}
                 className="w-full bg-slate-950 border border-slate-700 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
               />
             </div>
@@ -137,9 +127,29 @@ function JoinContent() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="alex_dev"
+                  maxLength={20}
+                  autoComplete="username"
                   className="w-full bg-slate-950 border border-slate-700 rounded-2xl pl-8 pr-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Create Password</label>
+              <div className="relative flex items-center">
+                <Lock className="w-4 h-4 text-slate-500 absolute left-3.5" />
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Minimum 8 characters"
+                  autoComplete="new-password"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-2xl pl-10 pr-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                />
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1">Stored as a salted scrypt hash — never in plain text.</p>
             </div>
 
             <button
@@ -147,18 +157,19 @@ function JoinContent() {
               disabled={loading}
               className="w-full py-3.5 bg-gradient-to-r from-indigo-500 via-purple-600 to-rose-500 hover:opacity-95 text-white font-extrabold text-sm rounded-2xl shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50 mt-2"
             >
-              <span>{loading ? "Joining..." : "Accept Invite & Launch App"}</span>
+              <span>{loading ? "Creating Account..." : "Accept Invite & Launch App"}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
         )}
 
-        <div className="mt-6 pt-6 border-t border-slate-800 text-center">
+        <div className="mt-6 pt-6 border-t border-slate-800 text-center space-y-2">
+          <p className="text-[11px] text-slate-500">Already have an account? You can sign in on the dashboard.</p>
           <button
             onClick={() => router.push("/")}
             className="text-xs text-slate-400 hover:text-white font-bold underline transition-colors"
           >
-            Return to main dashboard without joining
+            Return to main dashboard
           </button>
         </div>
       </div>

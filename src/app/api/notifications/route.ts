@@ -2,19 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { notifications } from "@/db/schema";
 import { desc, eq, and } from "drizzle-orm";
+import { requireUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const userId = searchParams.get("userId");
-    if (!userId) {
-      return NextResponse.json({ success: false, error: "userId is required." }, { status: 400 });
-    }
+    // Notifications are private: always read for the session user.
+    const auth = await requireUser(request);
+    if (auth instanceof NextResponse) return auth;
 
     const list = await db
       .select()
       .from(notifications)
-      .where(eq(notifications.userId, Number(userId)))
+      .where(eq(notifications.userId, auth.id))
       .orderBy(desc(notifications.createdAt))
       .limit(40);
 
@@ -29,18 +28,17 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { action, userId, notificationId } = body;
+    const auth = await requireUser(request);
+    if (auth instanceof NextResponse) return auth;
 
-    if (!userId) {
-      return NextResponse.json({ success: false, error: "userId is required." }, { status: 400 });
-    }
+    const body = await request.json();
+    const { action, notificationId } = body;
 
     if (action === "mark_read" && notificationId) {
       await db
         .update(notifications)
         .set({ isRead: true })
-        .where(and(eq(notifications.id, Number(notificationId)), eq(notifications.userId, Number(userId))));
+        .where(and(eq(notifications.id, Number(notificationId)), eq(notifications.userId, auth.id)));
       return NextResponse.json({ success: true });
     }
 
@@ -48,7 +46,7 @@ export async function POST(request: NextRequest) {
       await db
         .update(notifications)
         .set({ isRead: true })
-        .where(eq(notifications.userId, Number(userId)));
+        .where(eq(notifications.userId, auth.id));
       return NextResponse.json({ success: true });
     }
 

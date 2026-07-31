@@ -5,21 +5,31 @@ import { desc, eq, and } from "drizzle-orm";
 import { awardPoints } from "@/lib/gamification";
 import { createNotification } from "@/lib/notify";
 import { publish } from "@/lib/realtime";
+import { getSessionUser, requireUser, toPublicUser } from "@/lib/auth";
+import { hitRateLimit, rateLimitResponse } from "@/lib/ratelimit";
 
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const userIdParam = searchParams.get("userId");
 
+    // Regular members can only ever see their own referral activity; the full
+    // platform-wide view is restricted to signed-in admins.
+    const sessionUser = await getSessionUser(request);
+    const isAdmin = sessionUser?.role === "admin";
+
     let referralList;
-    if (userIdParam && userIdParam !== "all") {
+    if (isAdmin && (!userIdParam || userIdParam === "all")) {
+      referralList = await db.select().from(referrals).orderBy(desc(referrals.createdAt));
+    } else if (sessionUser) {
+      const targetId = isAdmin && userIdParam ? Number(userIdParam) : sessionUser.id;
       referralList = await db
         .select()
         .from(referrals)
-        .where(eq(referrals.referrerId, Number(userIdParam)))
+        .where(eq(referrals.referrerId, targetId))
         .orderBy(desc(referrals.createdAt));
     } else {
-      referralList = await db.select().from(referrals).orderBy(desc(referrals.createdAt));
+      return NextResponse.json({ success: false, error: "You must be signed in to view referrals." }, { status: 401 });
     }
 
     // Enhance with referrer details if needed
@@ -43,10 +53,20 @@ export async function GET(request: NextRequest) {
   }
 }
 
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
 export async function POST(request: NextRequest) {
   try {
+    // The referrer is always the signed-in user — referral bonuses can no
+    // longer be steered to an arbitrary account via a crafted request body.
+    const auth = await requireUser(request);
+    if (auth instanceof NextResponse) return auth;
+
+    const limit = hitRateLimit(`referrals:${auth.id}`, 30, 60 * 1000);
+    if (!limit.allowed) return rateLimitResponse(limit);
+
     const body = await request.json();
-    const { action, referrerId, email, name, referralId } = body;
+    const { action, email, name, referralId } = body;
 
     if (!action) {
       return NextResponse.json({ success: false, error: "Action is required." }, { status: 400 });
@@ -54,15 +74,11 @@ export async function POST(request: NextRequest) {
 
     // 1. Action: send invite (pending referral)
     if (action === "invite") {
-      if (!referrerId || !email) {
-        return NextResponse.json({ success: false, error: "Referrer ID and recipient email are required." }, { status: 400 });
+      if (!email || typeof email !== "string" || !EMAIL_RE.test(email.trim())) {
+        return NextResponse.json({ success: false, error: "A valid recipient email is required." }, { status: 400 });
       }
 
-      const referrerRes = await db.select().from(users).where(eq(users.id, Number(referrerId))).limit(1);
-      if (referrerRes.length === 0) {
-        return NextResponse.json({ success: false, error: "Referrer user not found." }, { status: 404 });
-      }
-      const referrer = referrerRes[0];
+      const referrer = auth;
 
       // Check if email already referred by this user
       const existing = await db.select().from(referrals).where(
@@ -94,19 +110,17 @@ export async function POST(request: NextRequest) {
 
       if (referralId) {
         const refRes = await db.select().from(referrals).where(eq(referrals.id, Number(referralId))).limit(1);
-        if (refRes.length > 0 && refRes[0].status === "pending") {
+        // Only allow completing YOUR OWN pending invites.
+        if (refRes.length > 0 && refRes[0].status === "pending" && refRes[0].referrerId === auth.id) {
           targetReferral = refRes[0];
+        } else if (refRes.length > 0 && refRes[0].referrerId !== auth.id) {
+          return NextResponse.json({ success: false, error: "You can only convert your own invites." }, { status: 403 });
         }
       }
 
-      let referrerUser;
-      if (targetReferral) {
-        const uRes = await db.select().from(users).where(eq(users.id, targetReferral.referrerId)).limit(1);
-        referrerUser = uRes[0];
-      } else if (referrerId) {
-        const uRes = await db.select().from(users).where(eq(users.id, Number(referrerId))).limit(1);
-        referrerUser = uRes[0];
-      }
+      const referrerUser = targetReferral
+        ? (await db.select().from(users).where(eq(users.id, targetReferral.referrerId)).limit(1))[0]
+        : auth;
 
       if (!referrerUser) {
         return NextResponse.json({ success: false, error: "Could not identify referrer user." }, { status: 404 });
@@ -179,7 +193,7 @@ export async function POST(request: NextRequest) {
         success: true,
         message: `🎉 Success! ${randomName} joined via @${referrerUser.username}'s referral link! Awarded +${reward.pointsAwarded} pts!`,
         referral: completedReferral,
-        newUser: newSimUser[0],
+        newUser: toPublicUser(newSimUser[0]),
         reward,
       });
     }

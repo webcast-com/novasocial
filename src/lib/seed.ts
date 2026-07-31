@@ -15,7 +15,12 @@ import {
   quests,
   flashEvents,
 } from "@/db/schema";
-import { count } from "drizzle-orm";
+import { count, eq, isNull } from "drizzle-orm";
+import { hashPassword } from "@/lib/auth";
+
+// All seed/demo accounts share this password (see README). It only exists to
+// make local development and demos possible — change it in production seeds.
+export const SEED_DEMO_PASSWORD = "password123";
 
 export async function ensureSeeded() {
   try {
@@ -72,7 +77,9 @@ export async function ensureSeeded() {
       name: "Successful Member Referral",
       description: "Invite colleagues or friends with your personal affiliate referral link when they sign up.",
       points: 200,
-      dailyCap: null,
+      // Capped at 5 conversions/day to keep the referral engine (and the demo
+      // conversion simulator) from being farmed for infinite points.
+      dailyCap: 1000,
       iconName: "UserPlus",
       isActive: true,
     },
@@ -87,11 +94,13 @@ export async function ensureSeeded() {
     },
   ]);
 
-  // 2. Insert Users
+  // 2. Insert Users (all demo accounts share SEED_DEMO_PASSWORD)
+  const demoPasswordHash = await hashPassword(SEED_DEMO_PASSWORD);
   const insertedUsers = await db.insert(users).values([
     {
       name: "Elena Rostova",
       username: "elena_tech",
+      passwordHash: demoPasswordHash,
       avatarUrl: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80",
       role: "user",
       referralCode: "ELENA_PULSE_2026",
@@ -104,6 +113,7 @@ export async function ensureSeeded() {
     {
       name: "Marcus Vance",
       username: "marcus_dev",
+      passwordHash: demoPasswordHash,
       avatarUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
       role: "user",
       referralCode: "MARCUS_V_DEV",
@@ -116,6 +126,7 @@ export async function ensureSeeded() {
     {
       name: "Priya Patel",
       username: "priya_pulse",
+      passwordHash: demoPasswordHash,
       avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
       role: "user",
       referralCode: "PRIYA_DEV_88",
@@ -128,6 +139,7 @@ export async function ensureSeeded() {
     {
       name: "Devon Walker",
       username: "devon_w",
+      passwordHash: demoPasswordHash,
       avatarUrl: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80",
       role: "user",
       referralCode: "DEVON_NEW",
@@ -140,6 +152,7 @@ export async function ensureSeeded() {
     {
       name: "Maya Sterling (Admin)",
       username: "admin_maya",
+      passwordHash: demoPasswordHash,
       avatarUrl: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80",
       role: "admin",
       referralCode: "MAYA_ADMIN_VIP",
@@ -537,6 +550,15 @@ export async function ensureNewFeaturesSeeded() {
             content: "Idea: Let's add exponential streak bonuses for 7 consecutive days!",
           },
         ]);
+      }
+    }
+
+    // B2. Backfill accounts without a password so they can sign in
+    const passwordless = await db.select({ id: users.id }).from(users).where(isNull(users.passwordHash)).limit(500);
+    if (passwordless.length > 0) {
+      const backfillHash = await hashPassword(SEED_DEMO_PASSWORD);
+      for (const row of passwordless) {
+        await db.update(users).set({ passwordHash: backfillHash }).where(eq(users.id, row.id));
       }
     }
 

@@ -1,22 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { rewards, userRewards, users, activityLogs } from "@/db/schema";
-import { desc, eq, and, sql } from "drizzle-orm";
-import { awardPoints, getTierForPoints } from "@/lib/gamification";
+import { desc, eq, and, sql, gte } from "drizzle-orm";
+import { getTierForPoints } from "@/lib/gamification";
+import { getSessionUser, requireUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const userId = searchParams.get("userId");
+    // Redemption history is private: it is only returned for the session user.
+    const sessionUser = await getSessionUser(request);
 
     const availableRewards = await db.select().from(rewards).orderBy(rewards.costPoints);
 
     let redemptions: any[] = [];
-    if (userId) {
+    if (sessionUser) {
       const dbRedemptions = await db
         .select()
         .from(userRewards)
-        .where(eq(userRewards.userId, Number(userId)))
+        .where(eq(userRewards.userId, sessionUser.id))
         .orderBy(desc(userRewards.redeemedAt));
 
       const rewardMap = new Map(availableRewards.map((r) => [r.id, r]));
@@ -39,21 +40,23 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // Points can only be spent by their owner: the session user.
+    const auth = await requireUser(request);
+    if (auth instanceof NextResponse) return auth;
+
     const body = await request.json();
-    const { userId, rewardId } = body;
+    const { rewardId } = body;
 
-    if (!userId || !rewardId) {
-      return NextResponse.json({ success: false, error: "User ID and Reward ID are required." }, { status: 400 });
+    if (!rewardId) {
+      return NextResponse.json({ success: false, error: "Reward ID is required." }, { status: 400 });
     }
 
-    const uRes = await db.select().from(users).where(eq(users.id, Number(userId))).limit(1);
     const rRes = await db.select().from(rewards).where(eq(rewards.id, Number(rewardId))).limit(1);
-
-    if (uRes.length === 0 || rRes.length === 0) {
-      return NextResponse.json({ success: false, error: "User or reward item not found." }, { status: 404 });
+    if (rRes.length === 0) {
+      return NextResponse.json({ success: false, error: "Reward item not found." }, { status: 404 });
     }
 
-    const user = uRes[0];
+    const user = auth;
     const reward = rRes[0];
 
     if (reward.stock <= 0) {
@@ -67,20 +70,36 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Deduct points
-    await db.update(users).set({
-      totalPoints: user.totalPoints - reward.costPoints,
-    }).where(eq(users.id, user.id));
+    // Deduct points ATOMICALLY: the UPDATE only applies if the balance still
+    // covers the cost, so concurrent redemptions can never double-spend.
+    const deducted = await db
+      .update(users)
+      .set({ totalPoints: sql`${users.totalPoints} - ${reward.costPoints}` })
+      .where(and(eq(users.id, user.id), gte(users.totalPoints, reward.costPoints)))
+      .returning();
+    if (deducted.length === 0) {
+      return NextResponse.json({ success: false, error: "Insufficient points (balance changed) — please retry." }, { status: 400 });
+    }
 
-    // Recalculate level after point spending or preserve highest? Generally level is current tier of points
-    const newTotal = user.totalPoints - reward.costPoints;
+    // Decrement stock atomically as well; if the last item was just taken,
+    // refund the points so the user is never charged for nothing.
+    const stocked = await db
+      .update(rewards)
+      .set({ stock: sql`${rewards.stock} - 1` })
+      .where(and(eq(rewards.id, reward.id), gte(rewards.stock, 1)))
+      .returning();
+    if (stocked.length === 0) {
+      await db
+        .update(users)
+        .set({ totalPoints: sql`${users.totalPoints} + ${reward.costPoints}` })
+        .where(eq(users.id, user.id));
+      return NextResponse.json({ success: false, error: "This item is out of stock!" }, { status: 400 });
+    }
+
+    // Recalculate level based on the true post-deduction balance
+    const newTotal = deducted[0].totalPoints;
     const newTier = getTierForPoints(newTotal);
     await db.update(users).set({ currentLevel: newTier.levelName }).where(eq(users.id, user.id));
-
-    // Decrement stock
-    await db.update(rewards).set({
-      stock: sql`${rewards.stock} - 1`,
-    }).where(eq(rewards.id, reward.id));
 
     // Record activity log
     await db.insert(activityLogs).values({

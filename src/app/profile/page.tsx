@@ -44,6 +44,7 @@ function ProfileContent() {
   const searchParams = useSearchParams();
 
   const [user, setUser] = useState<User | null>(null);
+  const [me, setMe] = useState<User | null>(null);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -67,24 +68,33 @@ function ProfileContent() {
     const init = async () => {
       setLoading(true);
       try {
-        // Determine which profile to show: ?userId= > localStorage active user > first user
+        // Identity comes from the verified server session.
+        let sessionUser: User | null = null;
+        try {
+          const meRes = await fetch("/api/auth/me");
+          const meData = await meRes.json();
+          if (meData.success && meData.user) {
+            sessionUser = meData.user;
+            setMe(meData.user);
+          }
+        } catch {}
+
+        // Determine which profile to show: ?userId= > session user
         const paramId = searchParams.get("userId");
-        let targetId = paramId;
-        if (!targetId && typeof window !== "undefined") {
-          targetId = window.localStorage.getItem("vibepulse_active_user_id");
-        }
 
         const res = await fetch("/api/users");
         const data = await res.json();
         if (data.success) {
           setAllUsers(data.users);
           let target: User | undefined;
-          if (targetId) {
-            target = data.users.find((u: User) => String(u.id) === String(targetId));
+          if (paramId) {
+            target = data.users.find((u: User) => String(u.id) === String(paramId));
+          }
+          if (!target && sessionUser) {
+            target = data.users.find((u: User) => u.id === sessionUser!.id) ?? sessionUser;
           }
           if (!target) {
-            target =
-              data.users.find((u: User) => u.username === "elena_tech") || data.users[0];
+            target = data.users[0];
           }
           if (target) {
             setUser(target);
@@ -128,13 +138,7 @@ function ProfileContent() {
       const data = await res.json();
       if (data.success) {
         setUser(data.user);
-        // keep localStorage in sync if this is the active user
-        if (typeof window !== "undefined") {
-          const activeId = window.localStorage.getItem("vibepulse_active_user_id");
-          if (activeId && String(data.user.id) === activeId) {
-            window.localStorage.setItem("vibepulse_active_user_id", String(data.user.id));
-          }
-        }
+        setAllUsers((prev) => prev.map((u) => (u.id === data.user.id ? data.user : u)));
         setSavedFlash(true);
         setTimeout(() => setSavedFlash(false), 2000);
         showToast("Profile settings saved successfully!");
@@ -188,6 +192,9 @@ function ProfileContent() {
   try {
     memberSince = format(new Date(user.createdAt), "MMM yyyy");
   } catch {}
+
+  // Only the profile owner (or an admin) may save edits — enforced server-side too.
+  const isOwnProfile = Boolean(me && user && (me.id === user.id || me.role === "admin"));
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-600 selection:text-white">
@@ -424,7 +431,8 @@ function ProfileContent() {
                 </div>
                 <button
                   type="submit"
-                  disabled={saving}
+                  disabled={saving || !isOwnProfile}
+                  title={isOwnProfile ? undefined : "You can only edit your own profile"}
                   className="px-7 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:opacity-95 text-white font-extrabold text-sm rounded-2xl shadow-lg transition-all flex items-center gap-2 disabled:opacity-50"
                 >
                   {saving ? (
@@ -436,6 +444,12 @@ function ProfileContent() {
                   )}
                 </button>
               </div>
+              {!isOwnProfile && (
+                <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-950/60 border border-slate-800 rounded-xl px-3.5 py-2.5">
+                  <Shield className="w-3.5 h-3.5 text-indigo-400" />
+                  You are viewing the profile of <strong className="text-slate-200">@{user.username}</strong> — only the account owner can save edits.
+                </div>
+              )}
             </form>
           </div>
 

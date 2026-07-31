@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { posts, comments, reactions, shares, users } from "@/db/schema";
+import { posts, comments, reactions, shares } from "@/db/schema";
 import { desc, eq, inArray } from "drizzle-orm";
 import { awardPoints } from "@/lib/gamification";
 import { publish } from "@/lib/realtime";
+import { requireUser } from "@/lib/auth";
+import { hitRateLimit, rateLimitResponse } from "@/lib/ratelimit";
 
 export async function GET(request: NextRequest) {
   try {
@@ -75,9 +77,17 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // Author is resolved from the session — a client can no longer post as
+    // someone else by sending their userId.
+    const auth = await requireUser(request);
+    if (auth instanceof NextResponse) return auth;
+    const author = auth;
+
+    const limit = hitRateLimit(`posts:${author.id}`, 20, 60 * 1000);
+    if (!limit.allowed) return rateLimitResponse(limit);
+
     const body = await request.json();
     const {
-      userId,
       title,
       content,
       category,
@@ -89,15 +99,23 @@ export async function POST(request: NextRequest) {
       pollOptions,
     } = body;
 
-    if (!userId || !title || !content) {
-      return NextResponse.json({ success: false, error: "User ID, title, and content are required." }, { status: 400 });
+    if (!title || !content) {
+      return NextResponse.json({ success: false, error: "Title and content are required." }, { status: 400 });
     }
-
-    const userResults = await db.select().from(users).where(eq(users.id, Number(userId))).limit(1);
-    if (userResults.length === 0) {
-      return NextResponse.json({ success: false, error: "Author user not found." }, { status: 404 });
+    if (typeof title !== "string" || typeof content !== "string" || title.trim().length === 0 || content.trim().length === 0) {
+      return NextResponse.json({ success: false, error: "Title and content cannot be empty." }, { status: 400 });
     }
-    const author = userResults[0];
+    if (title.trim().length > 200) {
+      return NextResponse.json({ success: false, error: "Title is too long (max 200 characters)." }, { status: 400 });
+    }
+    if (content.trim().length > 10000) {
+      return NextResponse.json({ success: false, error: "Content is too long (max 10,000 characters)." }, { status: 400 });
+    }
+    if (pollOptions !== undefined && pollOptions !== null) {
+      if (!Array.isArray(pollOptions) || pollOptions.length < 2 || pollOptions.length > 6 || pollOptions.some((o: any) => typeof o !== "string" || !o.trim())) {
+        return NextResponse.json({ success: false, error: "Polls need 2-6 non-empty text options." }, { status: 400 });
+      }
+    }
 
     let pollOptionsStr: string | null = null;
     let pollVotesStr: string | null = null;
@@ -116,8 +134,8 @@ export async function POST(request: NextRequest) {
       authorName: author.name,
       authorUsername: author.username,
       authorAvatar: author.avatarUrl,
-      title,
-      content,
+      title: title.trim(),
+      content: content.trim(),
       category: category || "General",
       sharesCount: 0,
       reactionsCount: 0,

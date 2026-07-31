@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { activityLogs, users } from "@/db/schema";
 import { desc, eq, and } from "drizzle-orm";
 import { awardPoints } from "@/lib/gamification";
+import { requireUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   try {
@@ -67,11 +68,16 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { userId, action } = body;
+    // Check-ins execute as the signed-in user (never a spoofed body userId).
+    const auth = await requireUser(request);
+    if (auth instanceof NextResponse) return auth;
+    const userId = auth.id;
 
-    if (!userId || !action) {
-      return NextResponse.json({ success: false, error: "User ID and action are required." }, { status: 400 });
+    const body = await request.json();
+    const { action } = body;
+
+    if (!action) {
+      return NextResponse.json({ success: false, error: "Action is required." }, { status: 400 });
     }
 
     if (action === "checkin") {
@@ -80,7 +86,7 @@ export async function POST(request: NextRequest) {
       const existing = await db
         .select()
         .from(activityLogs)
-        .where(and(eq(activityLogs.userId, Number(userId)), eq(activityLogs.activityType, "daily_login")))
+        .where(and(eq(activityLogs.userId, userId), eq(activityLogs.activityType, "daily_login")))
         .limit(1);
 
       if (existing.length > 0 && existing[0].createdAt > twelveHoursAgo) {

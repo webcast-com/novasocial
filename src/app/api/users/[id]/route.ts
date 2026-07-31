@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { getTierForPoints } from "@/lib/gamification";
+import { getSessionUser, toPublicUser } from "@/lib/auth";
 
 export async function GET(
   request: NextRequest,
@@ -14,20 +14,10 @@ export async function GET(
     if (results.length === 0) {
       return NextResponse.json({ success: false, error: "User not found." }, { status: 404 });
     }
-    let badges: string[] = [];
-    try {
-      badges = JSON.parse(results[0].equippedBadges || "[]");
-    } catch {
-      badges = [];
-    }
 
     return NextResponse.json({
       success: true,
-      user: {
-        ...results[0],
-        equippedBadges: badges,
-        tierInfo: getTierForPoints(results[0].totalPoints),
-      },
+      user: toPublicUser(results[0]),
     });
   } catch (error: any) {
     console.error("Fetch single user error:", error);
@@ -42,6 +32,16 @@ export async function PATCH(
   try {
     const { id } = await params;
     const numericId = Number(id);
+
+    // Users may only edit their OWN profile (admins excepted).
+    const sessionUser = await getSessionUser(request);
+    if (!sessionUser) {
+      return NextResponse.json({ success: false, error: "You must be signed in." }, { status: 401 });
+    }
+    if (sessionUser.id !== numericId && sessionUser.role !== "admin") {
+      return NextResponse.json({ success: false, error: "You can only edit your own profile." }, { status: 403 });
+    }
+
     const body = await request.json();
 
     const { name, bio, location, gender, avatarUrl, equippedBadges } = body;
@@ -73,21 +73,10 @@ export async function PATCH(
       .where(eq(users.id, numericId))
       .returning();
 
-    let updatedBadges: string[] = [];
-    try {
-      updatedBadges = JSON.parse(updated[0].equippedBadges || "[]");
-    } catch {
-      updatedBadges = [];
-    }
-
     return NextResponse.json({
       success: true,
       message: "Profile settings saved successfully!",
-      user: {
-        ...updated[0],
-        equippedBadges: updatedBadges,
-        tierInfo: getTierForPoints(updated[0].totalPoints),
-      },
+      user: toPublicUser(updated[0]),
     });
   } catch (error: any) {
     console.error("Update profile error:", error);
