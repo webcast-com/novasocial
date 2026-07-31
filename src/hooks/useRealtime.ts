@@ -11,6 +11,10 @@ export interface RealtimeMessage {
     | "poll_update"
     | "leaderboard_update"
     | "flash_event"
+    | "idea_update"
+    | "direct_message"
+    | "live_signal"
+    | "live_room"
     | "presence";
   payload: any;
   targetUserId?: number | null;

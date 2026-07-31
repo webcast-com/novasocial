@@ -30,7 +30,11 @@ export default function Navbar({
 
   const navItems = [
     { id: "stream", label: "Feed", fullLabel: "Community Feed", icon: "💬" },
-    { id: "chat", label: "Groups", fullLabel: "Groups & DMs", icon: "🗨️", badge: "Live" },
+    { id: "reels", label: "Reels", fullLabel: "Creator Reels", icon: "🎬", badge: "Video" },
+    ...(currentUser ? [{ id: "messages", label: "Messages", fullLabel: "Private Messages", icon: "✉️" }] : []),
+    { id: "live", label: "Live", fullLabel: "Live Broadcasts", icon: "📡", badge: "WebRTC" },
+    { id: "ideas", label: "Ideas", fullLabel: "Ideas & Roadmap", icon: "💡", badge: "New" },
+    { id: "chat", label: "Groups", fullLabel: "Communities", icon: "🗨️", badge: "Live" },
     { id: "quests", label: "Quests", fullLabel: "Quests & Streaks", icon: "🎯", badge: "Daily" },
     ...(currentUser ? [{ id: "referrals", label: "Referrals", fullLabel: "Referrals & Invites", icon: "🎁", badge: "200 pts" }] : []),
     { id: "leaderboard", label: "Ranking", fullLabel: "Leaderboard", icon: "👑" },

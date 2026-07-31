@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { User } from "@/types";
+import { SocialProfileStats, User } from "@/types";
 import ShareInvite from "@/components/ShareInvite";
 import SocialPreviewCard from "@/components/SocialPreviewCard";
 import {
@@ -19,6 +19,8 @@ import {
   Calendar,
   RefreshCw,
   UserPlus,
+  UserCheck,
+  Users,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -49,6 +51,8 @@ function ProfileContent() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [socialStats, setSocialStats] = useState<SocialProfileStats>({ followerCount: 0, followingCount: 0, isFollowing: false });
+  const [following, setFollowing] = useState(false);
 
   // Editable form fields
   const [editName, setEditName] = useState("");
@@ -62,6 +66,45 @@ function ProfileContent() {
   const showToast = (msg: string, err = false) => {
     setToast({ msg, err });
     setTimeout(() => setToast(null), 3500);
+  };
+
+  const loadSocialStats = async (profileId: number) => {
+    try {
+      const res = await fetch(`/api/social?profileId=${profileId}`);
+      const data = await res.json();
+      if (data.success && data.stats) setSocialStats(data.stats);
+    } catch {
+      // Social counts are supplementary to the profile and should not block it.
+    }
+  };
+
+  const handleToggleFollow = async () => {
+    if (!user) return;
+    if (!me) {
+      showToast("Sign in to follow creators and personalize your feed.", true);
+      return;
+    }
+    if (me.id === user.id) return;
+
+    setFollowing(true);
+    try {
+      const res = await fetch("/api/social", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "toggle_follow", profileId: user.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSocialStats(data.stats);
+        showToast(data.message || "Creator connection updated.");
+      } else {
+        showToast(data.error || "Could not update your following list.", true);
+      }
+    } catch {
+      showToast("Could not update your following list.", true);
+    } finally {
+      setFollowing(false);
+    }
   };
 
   useEffect(() => {
@@ -103,6 +146,7 @@ function ProfileContent() {
             setEditLocation(target.location || "");
             setEditGender(target.gender || "");
             setEditAvatar(target.avatarUrl || "");
+            void loadSocialStats(target.id);
           }
         }
       } catch (err) {
@@ -245,6 +289,29 @@ function ProfileContent() {
               </div>
               <p className="text-sm text-slate-400 font-medium">@{user.username}</p>
               {user.bio && <p className="text-sm text-slate-300 mt-2 max-w-xl">{user.bio}</p>}
+
+              <div className="mt-3 flex items-center gap-2.5 flex-wrap">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-950/60 px-3 py-1.5 text-xs font-bold text-slate-300">
+                  <Users className="w-3.5 h-3.5 text-indigo-400" /> {socialStats.followerCount} {socialStats.followerCount === 1 ? "Follower" : "Followers"}
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-950/60 px-3 py-1.5 text-xs font-bold text-slate-300">
+                  <UserCheck className="w-3.5 h-3.5 text-emerald-400" /> Following {socialStats.followingCount}
+                </span>
+                {me && me.id !== user.id && (
+                  <button
+                    onClick={handleToggleFollow}
+                    disabled={following}
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-1.5 text-xs font-black transition-all disabled:opacity-60 ${
+                      socialStats.isFollowing
+                        ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-rose-500/15 hover:border-rose-500/40 hover:text-rose-300"
+                        : "border-indigo-400/40 bg-indigo-600 text-white hover:bg-indigo-500 shadow-md shadow-indigo-950/40"
+                    }`}
+                  >
+                    {following ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : socialStats.isFollowing ? <UserCheck className="w-3.5 h-3.5" /> : <UserPlus className="w-3.5 h-3.5" />}
+                    {following ? "Updating…" : socialStats.isFollowing ? "Following" : "Follow"}
+                  </button>
+                )}
+              </div>
 
               <div className="flex items-center gap-4 flex-wrap mt-3">
                 {user.location && (
@@ -498,6 +565,7 @@ function ProfileContent() {
                       setEditGender(u.gender || "");
                       setEditAvatar(u.avatarUrl || "");
                       setUser(u);
+                      void loadSocialStats(u.id);
                     }}
                     className={`w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all text-left ${
                       u.id === user.id

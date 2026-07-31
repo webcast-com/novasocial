@@ -72,6 +72,33 @@ export interface PostItem {
   pollQuestion?: string | null;
   pollOptions?: string[];
   pollVotes?: Record<string, number>;
+  isBookmarked?: boolean;
+}
+
+export interface SocialProfileStats {
+  followerCount: number;
+  followingCount: number;
+  isFollowing: boolean;
+}
+
+export type IdeaStatus = "open" | "planned" | "in_progress" | "shipped" | "declined";
+export type IdeaImpact = "low" | "medium" | "high";
+
+export interface IdeaItem {
+  id: number;
+  authorId: number;
+  authorName: string;
+  authorUsername: string;
+  authorAvatar: string | null;
+  title: string;
+  description: string;
+  category: string;
+  status: IdeaStatus;
+  impact: IdeaImpact;
+  voteCount: number;
+  hasVoted: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ReferralItem {
@@ -193,6 +220,49 @@ export interface FlashEventItem {
   isActive: boolean;
   bannerText: string | null;
   updatedAt: string;
+}
+
+export interface DirectConversationItem {
+  id: number;
+  participantOneId: number;
+  participantTwoId: number;
+  updatedAt: string;
+  createdAt: string;
+  partner: Pick<User, "id" | "name" | "username" | "avatarUrl">;
+  lastMessage?: string | null;
+  unreadCount?: number;
+}
+
+export interface DirectMessageItem {
+  id: number;
+  conversationId: number;
+  senderId: number;
+  content: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface CommunityMemberItem {
+  id: number;
+  groupId: number;
+  userId: number;
+  role: "member" | "moderator";
+  createdAt: string;
+  user: Pick<User, "id" | "name" | "username" | "avatarUrl" | "role">;
+}
+
+export interface LiveRoomItem {
+  id: number;
+  hostId: number;
+  title: string;
+  description: string | null;
+  mode: "video" | "audio";
+  status: "live" | "ended";
+  createdAt: string;
+  endedAt: string | null;
+  host: Pick<User, "id" | "name" | "username" | "avatarUrl">;
+  viewerCount: number;
+  isJoined?: boolean;
 }
 
 export interface NotificationItem {

@@ -173,6 +173,10 @@ export async function POST(request: NextRequest) {
 
     if (action === "share") {
       const sharePlatform = platform || "copy_link";
+      const allowedPlatforms = ["copy_link", "x", "twitter", "linkedin", "whatsapp", "telegram", "facebook", "email", "native"];
+      if (typeof sharePlatform !== "string" || !allowedPlatforms.includes(sharePlatform)) {
+        return NextResponse.json({ success: false, error: "Unsupported sharing platform." }, { status: 400 });
+      }
 
       const insertedShare = await db.insert(shares).values({
         postId: numericPostId,

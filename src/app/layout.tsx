@@ -1,8 +1,19 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  viewportFit: "cover",
+  interactiveWidget: "resizes-content",
+  themeColor: "#4f46e5",
+  colorScheme: "dark",
+};
+
 export const metadata: Metadata = {
+  applicationName: "VibePulse",
   title: {
     default: "VibePulse — Gamified Activity & Loyalty Engine",
     template: "%s | VibePulse",
@@ -16,6 +27,11 @@ export const metadata: Metadata = {
     "referral engine",
     "activity tracking",
     "social rewards",
+    "creator reels",
+    "private messages",
+    "live video broadcast",
+    "audio rooms",
+    "community moderation",
     "next.js",
     "postgresql",
     "vibe pulse",
@@ -68,8 +84,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <head>
         <meta charSet="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5" />
         <meta name="theme-color" content="#4f46e5" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="msapplication-TileColor" content="#4f46e5" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="format-detection" content="telephone=no, email=no, address=no" />

@@ -19,6 +19,9 @@ build/
 # local PGlite database
 .pglite/
 
+# local device uploads (use object storage in production)
+public/uploads/
+
 # misc
 .DS_Store
 *.log

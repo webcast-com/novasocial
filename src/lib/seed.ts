@@ -14,6 +14,11 @@ import {
   chatMessages,
   quests,
   flashEvents,
+  ideas,
+  ideaVotes,
+  userFollows,
+  savedPosts,
+  communityMemberships,
 } from "@/db/schema";
 import { count, eq, isNull } from "drizzle-orm";
 import { hashPassword } from "@/lib/auth";
@@ -43,6 +48,15 @@ export async function ensureSeeded() {
       points: 50,
       dailyCap: 250,
       iconName: "FileText",
+      isActive: true,
+    },
+    {
+      actionType: "idea_submitted",
+      name: "Submit Product Idea",
+      description: "Share a clear product or community improvement proposal in the Ideas Hub.",
+      points: 35,
+      dailyCap: 105,
+      iconName: "Lightbulb",
       isActive: true,
     },
     {
@@ -442,7 +456,25 @@ export async function ensureSeeded() {
 
 export async function ensureNewFeaturesSeeded() {
   try {
-    // A. Ensure Quests exist
+    // A. Add the Ideas Hub rule for databases created before this feature.
+    const ideaRule = await db
+      .select({ id: activityRules.id })
+      .from(activityRules)
+      .where(eq(activityRules.actionType, "idea_submitted"))
+      .limit(1);
+    if (ideaRule.length === 0) {
+      await db.insert(activityRules).values({
+        actionType: "idea_submitted",
+        name: "Submit Product Idea",
+        description: "Share a clear product or community improvement proposal in the Ideas Hub.",
+        points: 35,
+        dailyCap: 105,
+        iconName: "Lightbulb",
+        isActive: true,
+      });
+    }
+
+    // B. Ensure Quests exist
     const qCount = await db.select({ val: count() }).from(quests);
     if ((qCount[0]?.val ?? 0) === 0) {
       await db.insert(quests).values([
@@ -553,7 +585,16 @@ export async function ensureNewFeaturesSeeded() {
       }
     }
 
-    // B2. Backfill accounts without a password so they can sign in
+    // B2. Give each seeded community a visible membership and moderator roster.
+    const membershipCount = await db.select({ val: count() }).from(communityMemberships);
+    if ((membershipCount[0]?.val ?? 0) === 0) {
+      const seededGroups = await db.select().from(chatGroups).limit(12);
+      const seededMembers = await db.select().from(users).orderBy(users.id).limit(5);
+      const rows = seededGroups.flatMap((group) => seededMembers.map((member, index) => ({ groupId: group.id, userId: member.id, role: index === 0 || group.createdById === member.id ? "moderator" : "member" })));
+      if (rows.length > 0) await db.insert(communityMemberships).values(rows);
+    }
+
+    // B3. Backfill accounts without a password so they can sign in
     const passwordless = await db.select({ id: users.id }).from(users).where(isNull(users.passwordHash)).limit(500);
     if (passwordless.length > 0) {
       const backfillHash = await hashPassword(SEED_DEMO_PASSWORD);
@@ -562,7 +603,108 @@ export async function ensureNewFeaturesSeeded() {
       }
     }
 
-    // C. Ensure Flash Events exist
+    // C. Seed a transparent roadmap when the Ideas Hub is first introduced.
+    const ideaCount = await db.select({ val: count() }).from(ideas);
+    if ((ideaCount[0]?.val ?? 0) === 0) {
+      const ideaMembers = await db.select().from(users).orderBy(users.id).limit(5);
+      const [elena, marcus, priya, devon, maya] = ideaMembers;
+
+      if (elena && marcus && priya) {
+        const seededIdeas = await db
+          .insert(ideas)
+          .values([
+            {
+              authorId: elena.id,
+              authorName: elena.name,
+              authorUsername: elena.username,
+              authorAvatar: elena.avatarUrl,
+              title: "Add saved views for the community activity feed",
+              description:
+                "Let members save their preferred filters — for example, tutorials, team updates, or high-signal discussions — and return to them in one click.",
+              category: "Experience",
+              status: "planned",
+              impact: "high",
+            },
+            {
+              authorId: marcus.id,
+              authorName: marcus.name,
+              authorUsername: marcus.username,
+              authorAvatar: marcus.avatarUrl,
+              title: "Create a monthly contributor spotlight",
+              description:
+                "Recognize helpful contributors with a curated recap of their posts, discussions, and community impact. It would make quality participation more visible.",
+              category: "Community",
+              status: "open",
+              impact: "medium",
+            },
+            {
+              authorId: priya.id,
+              authorName: priya.name,
+              authorUsername: priya.username,
+              authorAvatar: priya.avatarUrl,
+              title: "Give new members a guided first-week checklist",
+              description:
+                "A lightweight onboarding path for profile setup, first post, first comment, and daily check-in would make the value of VibePulse clear from day one.",
+              category: "Onboarding",
+              status: "in_progress",
+              impact: "high",
+            },
+          ])
+          .returning();
+
+        const voteRows = [
+          { ideaId: seededIdeas[0].id, userId: marcus.id },
+          { ideaId: seededIdeas[0].id, userId: priya.id },
+          ...(maya ? [{ ideaId: seededIdeas[0].id, userId: maya.id }] : []),
+          { ideaId: seededIdeas[1].id, userId: elena.id },
+          ...(devon ? [{ ideaId: seededIdeas[1].id, userId: devon.id }] : []),
+          { ideaId: seededIdeas[2].id, userId: elena.id },
+          { ideaId: seededIdeas[2].id, userId: marcus.id },
+          ...(maya ? [{ ideaId: seededIdeas[2].id, userId: maya.id }] : []),
+        ];
+        await db.insert(ideaVotes).values(voteRows);
+        // Keep these writes sequential: the lightweight PGlite socket server
+        // used by the zero-install dev database only accepts one query at a
+        // time, while production Postgres handles either form safely.
+        await db.update(ideas).set({ voteCount: 3 }).where(eq(ideas.id, seededIdeas[0].id));
+        await db.update(ideas).set({ voteCount: devon ? 2 : 1 }).where(eq(ideas.id, seededIdeas[1].id));
+        await db.update(ideas).set({ voteCount: maya ? 3 : 2 }).where(eq(ideas.id, seededIdeas[2].id));
+      }
+    }
+
+    // D. Seed lightweight creator connections and private reading lists.
+    // They have no points attached: social relevance should remain authentic.
+    const followCount = await db.select({ val: count() }).from(userFollows);
+    if ((followCount[0]?.val ?? 0) === 0) {
+      const socialMembers = await db.select().from(users).orderBy(users.id).limit(5);
+      const [elena, marcus, priya, devon, maya] = socialMembers;
+      if (elena && marcus && priya) {
+        const followRows = [
+          { followerId: elena.id, followedId: marcus.id },
+          { followerId: elena.id, followedId: priya.id },
+          { followerId: marcus.id, followedId: elena.id },
+          { followerId: priya.id, followedId: elena.id },
+          ...(devon ? [{ followerId: devon.id, followedId: elena.id }] : []),
+          ...(maya ? [{ followerId: maya.id, followedId: elena.id }, { followerId: maya.id, followedId: marcus.id }] : []),
+        ];
+        await db.insert(userFollows).values(followRows);
+      }
+    }
+
+    const savedPostCount = await db.select({ val: count() }).from(savedPosts);
+    if ((savedPostCount[0]?.val ?? 0) === 0) {
+      const socialMembers = await db.select().from(users).orderBy(users.id).limit(2);
+      const feedPosts = await db.select({ id: posts.id }).from(posts).orderBy(posts.id).limit(3);
+      if (socialMembers[0] && socialMembers[1] && feedPosts.length >= 2) {
+        await db.insert(savedPosts).values([
+          { userId: socialMembers[0].id, postId: feedPosts[1].id },
+          { userId: socialMembers[0].id, postId: feedPosts[2]?.id ?? feedPosts[0].id },
+          { userId: socialMembers[1].id, postId: feedPosts[0].id },
+        ]);
+      }
+    }
+
+    // E. Ensure Flash Events exist
     const eCount = await db.select({ val: count() }).from(flashEvents);
     if ((eCount[0]?.val ?? 0) === 0) {
       await db.insert(flashEvents).values([

@@ -2,7 +2,40 @@
 
 A realtime, gamified community loyalty platform built with **Next.js 16 (App Router)**, **React 19**, **Drizzle ORM + PostgreSQL**, **Tailwind CSS 4**, and server-sent events (SSE) for realtime updates.
 
-Members earn points for posts, comments, reactions, shares, referrals, daily streaks and quests; climb five tiers from 🌱 Novice to 👑 Pulse Grandmaster; and redeem points in the rewards store. Admins control the points economy live through the Rule Engine and Flash Events (2X/3X multipliers).
+Members earn points for posts, comments, reactions, shares, referrals, daily streaks, quests, and well-framed product ideas; climb five tiers from 🌱 Novice to 👑 Pulse Grandmaster; and redeem points in the rewards store. Admins control the points economy live through the Rule Engine and Flash Events (2X/3X multipliers).
+
+## Professional product-feedback upgrade: Ideas Hub
+
+The **Ideas Hub & Public Roadmap** turns community feedback into a structured delivery pipeline:
+
+- Members can submit concise improvement proposals with a category and expected impact.
+- One member, one vote per idea — a database unique index protects the signal from duplicate voting.
+- Search, category/status filtering, and popular/newest sorting make larger backlogs manageable.
+- Ideas visibly move through **Open → Planned → In progress → Shipped** (or *Not planned*), with admin-only status control.
+- Authors receive a private notification when an administrator advances their idea, and live clients refresh through SSE.
+- Submissions earn a capped, configurable `idea_submitted` reward rule, available in the admin Rule Engine.
+
+## Creator studio, live community, and device-first media
+
+This release extends VibePulse into a device-first creator and community platform:
+
+- **Device media upload** for JPG/PNG/WebP/GIF images and MP4/WebM/MOV videos—no pasted URLs required. Development uploads are stored under ignored `public/uploads`; use an S3/R2/GCS adapter or shared mounted `UPLOAD_DIR` for production.
+- **VibeReels** gives member-uploaded vertical videos their own immersive feed, with reactions, saves, and native sharing.
+- **Private Messages** provide authenticated one-to-one conversations. Only the two conversation participants can read or send messages.
+- **Live video and audio rooms** use browser WebRTC with authenticated SSE signaling for small community broadcasts. A TURN service should be configured alongside the included STUN server for production NAT reliability.
+- **Community rosters** show members and moderators; channel owners, moderators, and admins can promote or demote member moderators. Community chat now requires membership.
+- Mobile-safe viewport metadata, safe-area styling, minimum touch-friendly control sizing, and responsive media handling support phones, tablets, and desktop browsers.
+
+## Social platform expansion: creator connections and sharing
+
+The community feed now behaves more like a complete social product:
+
+- Follow or unfollow creators from their profile; their posts appear in a personalized **Following** feed.
+- Save useful posts into a private **Saved** reading list. Saves are never exposed to other members.
+- Use platform-native sharing intents for **WhatsApp, Telegram, X, LinkedIn, Facebook, email**, device share sheets, or a direct-copy link.
+- Shares remain an earned activity through the existing capped `post_shared` rule; follows and saves deliberately earn no points, preventing social-graph farming.
+
+Run `npm run db:push` after pulling these upgrades so PostgreSQL creates the feedback, social graph, community membership, private messaging, and live-room tables.
 
 ---
 
