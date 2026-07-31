@@ -31,7 +31,6 @@ export default function Home() {
   const [activeEvent, setActiveEvent] = useState<any>(null);
   const [notificationSignal, setNotificationSignal] = useState(0);
   const [isLive, setIsLive] = useState(false);
-  const [authChecked, setAuthChecked] = useState(false);
   const activeTabRef = useRef(activeTab);
   activeTabRef.current = activeTab;
   const currentUserRef = useRef<User | null>(currentUser);
@@ -119,12 +118,8 @@ export default function Home() {
       // Seeds an EMPTY database on first run (returns 403 afterwards unless admin — harmless).
       await fetch("/api/bootstrap", { method: "POST" }).catch(() => null);
       const me = await fetchMe();
-      setAuthChecked(true);
-      if (me) {
-        await fetchUsers(me.id);
-        await fetchPosts();
-        await fetchActiveEvent();
-      }
+
+      await Promise.all([fetchUsers(me?.id), fetchPosts(), fetchActiveEvent()]);
     } catch (err) {
       console.error("Bootstrap init error:", err);
       addToast("Error connecting to database services", undefined, true);
@@ -139,7 +134,6 @@ export default function Home() {
 
   const handleAuthenticated = async (user: User) => {
     setLoading(true);
-    setAuthChecked(true);
     setCurrentUser(user);
     await Promise.all([fetchUsers(user.id), fetchPosts(), fetchActiveEvent()]);
     setLoading(false);
@@ -214,35 +208,6 @@ export default function Home() {
   };
 
   useRealtime(currentUser?.id, handleRealtimeMessage);
-
-  // ------------------------------------------------------------------
-  // Unauthenticated: full-screen sign-in / join experience.
-  // ------------------------------------------------------------------
-  if (!loading && authChecked && !currentUser) {
-    return (
-      <div className="min-h-screen text-slate-100 flex flex-col font-sans antialiased selection:bg-indigo-600 selection:text-white relative overflow-x-hidden">
-        <BackgroundOrbs />
-        <NotificationToast toasts={toasts} onDismiss={handleDismissToast} />
-        <header className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6 flex items-center gap-3">
-          <div className="w-11 h-11 rounded-[14px] bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-600 flex items-center justify-center text-white shadow-[0_8px_24px_rgba(244,63,94,0.25)] font-black text-[18px] tracking-tighter">
-            VP
-          </div>
-          <div>
-            <h1 className="font-black text-[20px] tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
-              VibePulse
-            </h1>
-            <p className="text-[11px] text-slate-400 font-medium -mt-0.5">Realtime Gamified Loyalty Engine</p>
-          </div>
-        </header>
-        <main className="flex-1 relative z-10 px-4 flex flex-col justify-center">
-          <AuthGate onAuthenticated={handleAuthenticated} />
-        </main>
-        <footer className="relative z-10 text-center text-[11px] text-slate-600 pb-6">
-          © {new Date().getFullYear()} VibePulse — Posts • Quests • Rewards • Referrals • Real-time
-        </footer>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen text-slate-100 flex flex-col font-sans antialiased selection:bg-indigo-600 selection:text-white relative overflow-x-hidden">
@@ -339,6 +304,7 @@ export default function Home() {
               {activeTab === "rewards" && <RewardsStore currentUser={currentUser} onRefreshUser={()=>currentUser && fetchUsers(currentUser.id)} onShowToast={(msg, pts, err)=>addToast(msg, pts, err)} />}
               {activeTab === "rules" && <AdminRuleEngine currentUser={currentUser} onShowToast={(msg, pts, err)=>addToast(msg, pts, err)} />}
               {activeTab === "analytics" && <AnalyticsOverview />}
+              {activeTab === "auth" && !currentUser && <AuthGate onAuthenticated={handleAuthenticated} />}
             </motion.div>
           </AnimatePresence>
         )}

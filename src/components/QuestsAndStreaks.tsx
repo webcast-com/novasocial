@@ -30,10 +30,9 @@ export default function QuestsAndStreaks({ currentUser, onReward, onShowToast }:
   const [checkingIn, setCheckingIn] = useState(false);
 
   const fetchQuestsData = async () => {
-    if (!currentUser) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/quests?userId=${currentUser.id}`);
+      const res = await fetch("/api/quests");
       const data = await res.json();
       if (data.success) {
         setQuests(data.quests);
