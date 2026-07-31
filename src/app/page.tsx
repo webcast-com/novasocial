@@ -6,6 +6,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import Navbar from "@/components/Navbar";
 import NotificationToast, { RewardToastData } from "@/components/NotificationToast";
 import CommunityStream from "@/components/CommunityStream";
+import ReelsFeed from "@/components/ReelsFeed";
+import PrivateMessages from "@/components/PrivateMessages";
+import LiveBroadcast from "@/components/LiveBroadcast";
+import IdeasHub from "@/components/IdeasHub";
 import ReferralHub from "@/components/ReferralHub";
 import LeaderboardView from "@/components/LeaderboardView";
 import ActivityTimeline from "@/components/ActivityTimeline";
@@ -30,6 +34,7 @@ export default function Home() {
   const [toasts, setToasts] = useState<RewardToastData[]>([]);
   const [activeEvent, setActiveEvent] = useState<any>(null);
   const [notificationSignal, setNotificationSignal] = useState(0);
+  const [ideaSignal, setIdeaSignal] = useState(0);
   const [isLive, setIsLive] = useState(false);
   const activeTabRef = useRef(activeTab);
   activeTabRef.current = activeTab;
@@ -202,6 +207,9 @@ export default function Home() {
       case "flash_event":
         fetchActiveEvent();
         break;
+      case "idea_update":
+        setIdeaSignal((signal) => signal + 1);
+        break;
       default:
         break;
     }
@@ -296,6 +304,10 @@ export default function Home() {
               </motion.div>
 
               {activeTab === "stream" && <CommunityStream currentUser={currentUser} posts={posts} onRefreshPosts={fetchPosts} onReward={handleReward} onShowToast={(msg, pts, err) => addToast(msg, pts, err)} />}
+              {activeTab === "reels" && <ReelsFeed currentUser={currentUser} onOpenFeed={() => setActiveTab("stream")} onShowToast={(msg, pts, err) => addToast(msg, pts, err)} />}
+              {activeTab === "messages" && <PrivateMessages currentUser={currentUser} allUsers={allUsers} onShowToast={(msg, pts, err) => addToast(msg, pts, err)} />}
+              {activeTab === "live" && <LiveBroadcast currentUser={currentUser} onShowToast={(msg, pts, err) => addToast(msg, pts, err)} />}
+              {activeTab === "ideas" && <IdeasHub currentUser={currentUser} refreshSignal={ideaSignal} onReward={handleReward} onShowToast={(msg, pts, err) => addToast(msg, pts, err)} />}
               {activeTab === "chat" && <CommunityChat currentUser={currentUser} allUsers={allUsers} onReward={handleReward} onShowToast={(msg, pts, err) => addToast(msg, pts, err)} />}
               {activeTab === "quests" && <QuestsAndStreaks currentUser={currentUser} onReward={handleReward} onShowToast={(msg, pts, err) => addToast(msg, pts, err)} />}
               {activeTab === "referrals" && <ReferralHub currentUser={currentUser} onReward={handleReward} onUserCreated={(u)=>setAllUsers(prev=>[...prev, u])} onShowToast={(msg, pts, err)=>addToast(msg, pts, err)} />}

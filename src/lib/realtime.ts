@@ -11,6 +11,10 @@ export type RealtimeEvent = {
     | "poll_update"
     | "leaderboard_update"
     | "flash_event"
+    | "idea_update"
+    | "direct_message"
+    | "live_signal"
+    | "live_room"
     | "presence";
   payload: any;
   // Optional target user id. When set, only that user's streams receive it.
