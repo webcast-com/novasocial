@@ -15,6 +15,7 @@ import AnalyticsOverview from "@/components/AnalyticsOverview";
 import CommunityChat from "@/components/CommunityChat";
 import QuestsAndStreaks from "@/components/QuestsAndStreaks";
 import BackgroundOrbs from "@/components/ui/BackgroundOrbs";
+import AuthGate from "@/components/AuthGate";
 import { PostSkeleton } from "@/components/ui/Skeleton";
 import { fadeInUp, stagger } from "@/components/ui/motion";
 import { useRealtime, RealtimeMessage } from "@/hooks/useRealtime";
@@ -30,6 +31,7 @@ export default function Home() {
   const [activeEvent, setActiveEvent] = useState<any>(null);
   const [notificationSignal, setNotificationSignal] = useState(0);
   const [isLive, setIsLive] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const activeTabRef = useRef(activeTab);
   activeTabRef.current = activeTab;
   const currentUserRef = useRef<User | null>(currentUser);
@@ -63,14 +65,28 @@ export default function Home() {
         setAllUsers(uList);
         if (keepCurrentId) {
           const updatedCurr = uList.find((u: User) => u.id === keepCurrentId);
-          if (updatedCurr) setCurrentUser(updatedCurr);
-        } else if (!currentUser && uList.length > 0) {
-          const defaultUser = uList.find((u: User) => u.username === "elena_tech") || uList[0];
-          setCurrentUser(defaultUser);
+          if (updatedCurr) setCurrentUser((prev) => (prev ? updatedCurr : prev));
         }
       }
     } catch (err) {
       console.error("Failed to fetch users:", err);
+    }
+  };
+
+  // Refresh the signed-in user from the authoritative session endpoint.
+  const fetchMe = async (): Promise<User | null> => {
+    try {
+      const res = await fetch("/api/auth/me");
+      const data = await res.json();
+      if (data.success && data.user) {
+        setCurrentUser(data.user);
+        return data.user;
+      }
+      setCurrentUser(null);
+      return null;
+    } catch (err) {
+      console.error("Failed to fetch session user:", err);
+      return null;
     }
   };
 
@@ -100,10 +116,15 @@ export default function Home() {
   const bootstrapAndInit = async () => {
     setLoading(true);
     try {
-      await fetch("/api/bootstrap", { method: "POST" });
-      await fetchUsers();
-      await fetchPosts();
-      await fetchActiveEvent();
+      // Seeds an EMPTY database on first run (returns 403 afterwards unless admin — harmless).
+      await fetch("/api/bootstrap", { method: "POST" }).catch(() => null);
+      const me = await fetchMe();
+      setAuthChecked(true);
+      if (me) {
+        await fetchUsers(me.id);
+        await fetchPosts();
+        await fetchActiveEvent();
+      }
     } catch (err) {
       console.error("Bootstrap init error:", err);
       addToast("Error connecting to database services", undefined, true);
@@ -116,16 +137,33 @@ export default function Home() {
     bootstrapAndInit();
   }, []);
 
-  useEffect(() => {
-    if (typeof window !== "undefined" && currentUser) {
-      window.localStorage.setItem("vibepulse_active_user_id", String(currentUser.id));
+  const handleAuthenticated = async (user: User) => {
+    setLoading(true);
+    setAuthChecked(true);
+    setCurrentUser(user);
+    await Promise.all([fetchUsers(user.id), fetchPosts(), fetchActiveEvent()]);
+    setLoading(false);
+    addToast(`Welcome, ${user.name}! You're signed in as @${user.username}.`);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch (err) {
+      console.error("Logout error:", err);
     }
-  }, [currentUser]);
+    setCurrentUser(null);
+    setActiveTab("stream");
+    addToast("You have been signed out. See you soon! 👋");
+  };
 
   const handleReward = (rewardData: any) => {
     if (!rewardData) return;
     const { pointsAwarded, message, leveledUp, newLevel } = rewardData;
-    if (currentUser) fetchUsers(currentUser.id);
+    if (currentUser) {
+      fetchUsers(currentUser.id);
+      fetchMe();
+    }
     fetchActiveEvent();
     addToast(
       message || `You earned +${pointsAwarded} points!`,
@@ -148,7 +186,10 @@ export default function Home() {
         if (msg.payload?.title) addToast(`${msg.payload.iconEmoji || "🔔"} ${msg.payload.message || msg.payload.title}`);
         break;
       case "points_update":
-        if (cu && msg.payload?.userId === cu.id) fetchUsers(cu.id);
+        if (cu && msg.payload?.userId === cu.id) {
+          fetchUsers(cu.id);
+          fetchMe();
+        }
         break;
       case "new_post":
         if (msg.payload?.post) {
@@ -174,6 +215,35 @@ export default function Home() {
 
   useRealtime(currentUser?.id, handleRealtimeMessage);
 
+  // ------------------------------------------------------------------
+  // Unauthenticated: full-screen sign-in / join experience.
+  // ------------------------------------------------------------------
+  if (!loading && authChecked && !currentUser) {
+    return (
+      <div className="min-h-screen text-slate-100 flex flex-col font-sans antialiased selection:bg-indigo-600 selection:text-white relative overflow-x-hidden">
+        <BackgroundOrbs />
+        <NotificationToast toasts={toasts} onDismiss={handleDismissToast} />
+        <header className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6 flex items-center gap-3">
+          <div className="w-11 h-11 rounded-[14px] bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-600 flex items-center justify-center text-white shadow-[0_8px_24px_rgba(244,63,94,0.25)] font-black text-[18px] tracking-tighter">
+            VP
+          </div>
+          <div>
+            <h1 className="font-black text-[20px] tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
+              VibePulse
+            </h1>
+            <p className="text-[11px] text-slate-400 font-medium -mt-0.5">Realtime Gamified Loyalty Engine</p>
+          </div>
+        </header>
+        <main className="flex-1 relative z-10 px-4 flex flex-col justify-center">
+          <AuthGate onAuthenticated={handleAuthenticated} />
+        </main>
+        <footer className="relative z-10 text-center text-[11px] text-slate-600 pb-6">
+          © {new Date().getFullYear()} VibePulse — Posts • Quests • Rewards • Referrals • Real-time
+        </footer>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen text-slate-100 flex flex-col font-sans antialiased selection:bg-indigo-600 selection:text-white relative overflow-x-hidden">
       <BackgroundOrbs />
@@ -181,9 +251,7 @@ export default function Home() {
 
       <Navbar
         currentUser={currentUser}
-        allUsers={allUsers}
-        onSelectUser={(u) => { setCurrentUser(u); fetchPosts(); }}
-        onUserCreated={(newU) => { setAllUsers((prev) => [newU, ...prev]); setCurrentUser(newU); }}
+        onLogout={handleLogout}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onShowToast={(msg, pts, err) => addToast(msg, pts, err)}
@@ -206,7 +274,9 @@ export default function Home() {
               <span className="px-2.5 py-0.5 rounded-full bg-slate-950/85 text-amber-300 text-xs font-black border border-amber-300/20 shadow">
                 {activeEvent.multiplier}X MULTIPLIER LIVE
               </span>
-              <button onClick={() => setActiveTab("rules")} className="px-3 py-0.5 rounded-full bg-white/25 hover:bg-white/40 text-slate-950 text-xs font-black transition-all">Manage Event →</button>
+              {currentUser?.role === "admin" && (
+                <button onClick={() => setActiveTab("rules")} className="px-3 py-0.5 rounded-full bg-white/25 hover:bg-white/40 text-slate-950 text-xs font-black transition-all">Manage Event →</button>
+              )}
             </div>
           </motion.div>
         )}
@@ -264,7 +334,7 @@ export default function Home() {
               {activeTab === "chat" && <CommunityChat currentUser={currentUser} allUsers={allUsers} onReward={handleReward} onShowToast={(msg, pts, err) => addToast(msg, pts, err)} />}
               {activeTab === "quests" && <QuestsAndStreaks currentUser={currentUser} onReward={handleReward} onShowToast={(msg, pts, err) => addToast(msg, pts, err)} />}
               {activeTab === "referrals" && <ReferralHub currentUser={currentUser} onReward={handleReward} onUserCreated={(u)=>setAllUsers(prev=>[...prev, u])} onShowToast={(msg, pts, err)=>addToast(msg, pts, err)} />}
-              {activeTab === "leaderboard" && <LeaderboardView users={allUsers} currentUser={currentUser} onSelectUser={(u)=>{setCurrentUser(u); addToast(`Switched persona to ${u.name}`);}} />}
+              {activeTab === "leaderboard" && <LeaderboardView users={allUsers} currentUser={currentUser} onSelectUser={(u)=>{ window.location.href = `/profile?userId=${u.id}`; }} />}
               {activeTab === "timeline" && <ActivityTimeline currentUser={currentUser} allUsers={allUsers} onReward={handleReward} onShowToast={(msg, pts, err)=>addToast(msg, pts, err)} />}
               {activeTab === "rewards" && <RewardsStore currentUser={currentUser} onRefreshUser={()=>currentUser && fetchUsers(currentUser.id)} onShowToast={(msg, pts, err)=>addToast(msg, pts, err)} />}
               {activeTab === "rules" && <AdminRuleEngine currentUser={currentUser} onShowToast={(msg, pts, err)=>addToast(msg, pts, err)} />}
@@ -312,7 +382,7 @@ export default function Home() {
                   { l: "🎁 Referral", r: "+200 pts", c: "text-amber-300 font-black" },
                   { l: "🔥 Daily Streak", r: "+15 pts", c: "text-orange-400" },
                   { l: "🎯 Quests", r: "+30-50 pts", c: "text-purple-400" },
-                  { l: "🗨️ Group Chat", r: "+15 pts", c: "text-blue-400" },
+                  { l: "🗨️ Group Chat", r: "capped", c: "text-blue-400" },
                 ]
               },
               {

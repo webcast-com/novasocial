@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { quests, userQuestProgress, users } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import { awardPoints, getTierForPoints } from "@/lib/gamification";
+import { awardPoints } from "@/lib/gamification";
+import { getSessionUser, requireUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const userId = searchParams.get("userId");
+    // Personal quest progress and streak data are scoped to the session user.
+    const sessionUser = await getSessionUser(request);
+    const userId = sessionUser?.id ?? null;
     const dateKey = new Date().toISOString().slice(0, 10); // e.g. '2026-03-30'
 
     const activeQuests = await db.select().from(quests).where(eq(quests.isActive, true));
@@ -16,7 +18,7 @@ export async function GET(request: NextRequest) {
     let userStreakInfo = null;
 
     if (userId) {
-      const uRes = await db.select().from(users).where(eq(users.id, Number(userId))).limit(1);
+      const uRes = await db.select().from(users).where(eq(users.id, userId)).limit(1);
       if (uRes.length > 0) {
         const u = uRes[0];
         userStreakInfo = {
@@ -36,7 +38,7 @@ export async function GET(request: NextRequest) {
       const progress = await db
         .select()
         .from(userQuestProgress)
-        .where(and(eq(userQuestProgress.userId, Number(userId)), eq(userQuestProgress.dateKey, dateKey)));
+        .where(and(eq(userQuestProgress.userId, userId), eq(userQuestProgress.dateKey, dateKey)));
 
       const questMap = new Map(activeQuests.map((q) => [q.id, q]));
       userProgressList = progress.map((p) => ({
@@ -72,14 +74,15 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // Claims and check-ins always execute as the signed-in user.
+    const auth = await requireUser(request);
+    if (auth instanceof NextResponse) return auth;
+    const sessionUser = auth;
+
     const body = await request.json();
-    const { action, userId, questId } = body;
+    const { action, questId } = body;
 
-    if (!userId) {
-      return NextResponse.json({ success: false, error: "User ID is required." }, { status: 400 });
-    }
-
-    const numericUserId = Number(userId);
+    const numericUserId = sessionUser.id;
 
     if (action === "claim_quest") {
       if (!questId) {
@@ -148,7 +151,11 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      const newStreak = (u.currentStreak || 0) + 1;
+      // Streak integrity: if the last check-in was NOT yesterday, the streak is
+      // broken and restarts at day 1. (Previously streaks could only ever grow.)
+      const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const streakAlive = u.lastCheckinDate === yesterday;
+      const newStreak = streakAlive ? (u.currentStreak || 0) + 1 : 1;
       const newMax = Math.max(u.maxStreak || 0, newStreak);
 
       // Multi-day Streak exponential bonus: e.g. day 1=+15, day 3=+30, day 7=+70

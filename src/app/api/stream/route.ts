@@ -1,13 +1,16 @@
 import { NextRequest } from "next/server";
 import { subscribe, publish, getSubscriberCount, RealtimeEvent } from "@/lib/realtime";
+import { getSessionUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams;
-  const userIdParam = searchParams.get("userId");
-  const userId = userIdParam ? Number(userIdParam) : null;
+  // The stream's identity is bound to the verified session. Previously any
+  // client could pass ?userId=N and receive that user's private targeted
+  // events (notifications, points updates) — an eavesdropping vector.
+  const sessionUser = await getSessionUser(request);
+  const userId = sessionUser?.id ?? null;
 
   const encoder = new TextEncoder();
   const subId = `${userId ?? "anon"}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

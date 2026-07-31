@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { flashEvents } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { publish } from "@/lib/realtime";
+import { requireAdmin } from "@/lib/auth";
 
 export async function GET() {
   try {
@@ -16,6 +17,10 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    // Flash events multiply the entire points economy — admin-only.
+    const auth = await requireAdmin(request);
+    if (auth instanceof NextResponse) return auth;
+
     const body = await request.json();
     const { action, id, title, description, multiplier, isActive, bannerText } = body;
 
@@ -44,12 +49,17 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "create") {
+      const parsedMultiplier = multiplier ? Number(multiplier) : 2;
+      if (!Number.isInteger(parsedMultiplier) || parsedMultiplier < 1 || parsedMultiplier > 5) {
+        return NextResponse.json({ success: false, error: "Multiplier must be an integer between 1 and 5." }, { status: 400 });
+      }
+
       const inserted = await db
         .insert(flashEvents)
         .values({
           title: title || "🎉 HAPPY HOUR MULTIPLIER EVENT",
           description: description || "All points earned from posting, commenting, and reacting are DOUBLED!",
-          multiplier: multiplier ? Number(multiplier) : 2,
+          multiplier: parsedMultiplier,
           isActive: true,
           bannerText: bannerText || "⚡ HAPPY HOUR ACTIVE: ALL ACTIVITY POINTS MULTIPLIED!",
         })

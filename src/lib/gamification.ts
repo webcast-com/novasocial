@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { users, activityRules, activityLogs, flashEvents, quests, userQuestProgress } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, gt, sql } from "drizzle-orm";
 import { publish } from "@/lib/realtime";
 
 export interface TierInfo {
@@ -62,7 +62,9 @@ export async function awardPoints({
   // 2. Fetch rule or use custom points
   let pointsToAward = customPoints !== undefined ? customPoints : 0;
   let ruleTitle = title || actionType;
-  
+  let dailyCap: number | null = null;
+  let capReached = false;
+
   if (customPoints === undefined) {
     const ruleResults = await db.select().from(activityRules).where(eq(activityRules.actionType, actionType)).limit(1);
     if (ruleResults.length > 0) {
@@ -71,6 +73,7 @@ export async function awardPoints({
         pointsToAward = 0;
       } else {
         pointsToAward = rule.points;
+        dailyCap = rule.dailyCap;
       }
       if (!title) {
         ruleTitle = rule.name;
@@ -78,9 +81,39 @@ export async function awardPoints({
     }
   }
 
-  // Check if there is an active Flash Event multiplier (e.g. 2X Happy Hour)
+  // 2b. Enforce the rule's daily cap: count points already earned TODAY for this
+  // exact action (rule-based awards only; custom-point awards like quest claims
+  // and streak bonuses have their own once-a-day safeguards).
+  let capRemaining = Infinity;
+  if (dailyCap !== null && dailyCap !== undefined && pointsToAward > 0) {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const earnedRows = await db
+      .select({ total: sql<number>`coalesce(sum(${activityLogs.pointsChange}), 0)` })
+      .from(activityLogs)
+      .where(
+        and(
+          eq(activityLogs.userId, userId),
+          eq(activityLogs.activityType, actionType),
+          gt(activityLogs.createdAt, startOfDay),
+          gt(activityLogs.pointsChange, 0)
+        )
+      );
+    const earnedToday = Number(earnedRows[0]?.total ?? 0);
+    capRemaining = Math.max(0, dailyCap - earnedToday);
+    if (capRemaining <= 0) {
+      pointsToAward = 0;
+      capReached = true;
+    }
+  }
+
+  // Check if there is an active Flash Event multiplier (e.g. 2X Happy Hour).
+  // Multipliers only apply to RULE-BASED activity awards (posting, commenting,
+  // reacting, sharing, referrals). One-off custom bonuses (quest claims,
+  // streak bonuses, welcome bonuses) are never multiplied — otherwise flash
+  // events would inflate fixed-value rewards far beyond their design.
   let appliedMultiplier = 1;
-  if (pointsToAward > 0) {
+  if (pointsToAward > 0 && customPoints === undefined) {
     try {
       const activeEvents = await db.select().from(flashEvents).where(eq(flashEvents.isActive, true)).limit(1);
       if (activeEvents.length > 0 && activeEvents[0].multiplier > 1) {
@@ -91,6 +124,11 @@ export async function awardPoints({
     } catch (e) {
       console.error("Flash event lookup error:", e);
     }
+  }
+
+  // Clamp the (possibly multiplied) award to what remains under the daily cap.
+  if (pointsToAward > 0 && capRemaining !== Infinity && pointsToAward > capRemaining) {
+    pointsToAward = capRemaining;
   }
 
   const previousTotal = user.totalPoints;
@@ -117,11 +155,15 @@ export async function awardPoints({
     currentLevel: newTier.levelName,
   }).where(eq(users.id, userId));
 
-  // 5. Check and advance any daily/weekly quests for this action
-  try {
-    await recordQuestProgress(userId, actionType);
-  } catch (err) {
-    console.error("Quest recording error:", err);
+  // 5. Check and advance any daily/weekly quests for this action.
+  // Only actions that actually earned points count — this stops zero-point
+  // spam (past the daily cap) from inflating quest progress.
+  if (pointsToAward > 0) {
+    try {
+      await recordQuestProgress(userId, actionType);
+    } catch (err) {
+      console.error("Quest recording error:", err);
+    }
   }
 
   // 6. Real-time: push live points ticker to the user + refresh leaderboard
@@ -145,9 +187,11 @@ export async function awardPoints({
     previousLevel: oldTier.levelName,
     newLevel: newTier.levelName,
     leveledUp,
-    message: leveledUp
-      ? `Level Up! You earned +${pointsToAward} pts and reached ${newTier.levelName} (${newTier.icon})!`
-      : `Awesome! You earned +${pointsToAward} pts!`,
+    message: capReached
+      ? `Daily cap reached for ${ruleTitle} — come back tomorrow to keep earning!`
+      : leveledUp
+        ? `Level Up! You earned +${pointsToAward} pts and reached ${newTier.levelName} (${newTier.icon})!`
+        : `Awesome! You earned +${pointsToAward} pts!`,
   };
 }
 

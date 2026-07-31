@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { chatGroups, chatMessages, users } from "@/db/schema";
+import { chatGroups, chatMessages } from "@/db/schema";
 import { desc, eq } from "drizzle-orm";
 import { awardPoints } from "@/lib/gamification";
 import { publish } from "@/lib/realtime";
+import { requireUser } from "@/lib/auth";
+import { hitRateLimit, rateLimitResponse } from "@/lib/ratelimit";
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,22 +33,27 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // Sender identity comes from the verified session, never from the body.
+    const auth = await requireUser(request);
+    if (auth instanceof NextResponse) return auth;
+    const sender = auth;
+
     const body = await request.json();
-    const { action, groupId, senderId, content, name, description, category, isDirect } = body;
+    const { action, groupId, content, name, description, category, isDirect } = body;
 
     if (action === "send") {
-      if (!groupId || !senderId || !content || !content.trim()) {
+      const limit = hitRateLimit(`chat:${sender.id}`, 60, 60 * 1000);
+      if (!limit.allowed) return rateLimitResponse(limit);
+
+      if (!groupId || !content || !content.trim()) {
         return NextResponse.json(
-          { success: false, error: "Group ID, sender ID, and content are required." },
+          { success: false, error: "Group ID and content are required." },
           { status: 400 }
         );
       }
-
-      const senderRes = await db.select().from(users).where(eq(users.id, Number(senderId))).limit(1);
-      if (senderRes.length === 0) {
-        return NextResponse.json({ success: false, error: "Sender user not found." }, { status: 404 });
+      if (content.trim().length > 2000) {
+        return NextResponse.json({ success: false, error: "Message is too long (max 2000 characters)." }, { status: 400 });
       }
-      const sender = senderRes[0];
 
       const insertedMsg = await db
         .insert(chatMessages)
@@ -60,13 +67,14 @@ export async function POST(request: NextRequest) {
         })
         .returning();
 
-      // Optionally award points for participating in chat discussions (+15 pts)
+      // Chat messages earn through the standard "comment_created" rule, which
+      // means they share the same daily cap as post comments. (This replaces an
+      // uncapped flat +15 per message that allowed unlimited chat farming.)
       const reward = await awardPoints({
         userId: sender.id,
-        actionType: "comment_created", // maps to community discussion progress
+        actionType: "comment_created",
         title: "In-App Community Chat",
         description: `Sent message in channel #${groupId}`,
-        customPoints: 15,
       });
 
       // Real-time: broadcast the new message to everyone viewing this channel
@@ -83,14 +91,18 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, error: "Channel name is required." }, { status: 400 });
       }
 
+      if (name.trim().length > 64) {
+        return NextResponse.json({ success: false, error: "Channel name is too long (max 64 characters)." }, { status: 400 });
+      }
+
       const insertedGroup = await db
         .insert(chatGroups)
         .values({
           name: name.trim(),
-          description: description || "Community interest discussion group",
+          description: (typeof description === "string" ? description.slice(0, 200) : null) || "Community interest discussion group",
           category: category || "General",
           isDirect: Boolean(isDirect),
-          createdById: senderId ? Number(senderId) : null,
+          createdById: sender.id,
         })
         .returning();
 
