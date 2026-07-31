@@ -2,7 +2,20 @@
 
 A realtime, gamified community loyalty platform built with **Next.js 16 (App Router)**, **React 19**, **Drizzle ORM + PostgreSQL**, **Tailwind CSS 4**, and server-sent events (SSE) for realtime updates.
 
-Members earn points for posts, comments, reactions, shares, referrals, daily streaks and quests; climb five tiers from 🌱 Novice to 👑 Pulse Grandmaster; and redeem points in the rewards store. Admins control the points economy live through the Rule Engine and Flash Events (2X/3X multipliers).
+Members earn points for posts, comments, reactions, shares, referrals, daily streaks, quests, and well-framed product ideas; climb five tiers from 🌱 Novice to 👑 Pulse Grandmaster; and redeem points in the rewards store. Admins control the points economy live through the Rule Engine and Flash Events (2X/3X multipliers).
+
+## Professional product-feedback upgrade: Ideas Hub
+
+The **Ideas Hub & Public Roadmap** turns community feedback into a structured delivery pipeline:
+
+- Members can submit concise improvement proposals with a category and expected impact.
+- One member, one vote per idea — a database unique index protects the signal from duplicate voting.
+- Search, category/status filtering, and popular/newest sorting make larger backlogs manageable.
+- Ideas visibly move through **Open → Planned → In progress → Shipped** (or *Not planned*), with admin-only status control.
+- Authors receive a private notification when an administrator advances their idea, and live clients refresh through SSE.
+- Submissions earn a capped, configurable `idea_submitted` reward rule, available in the admin Rule Engine.
+
+Run `npm run db:push` after pulling this upgrade so PostgreSQL creates the `ideas` and `idea_votes` tables.
 
 ---
 

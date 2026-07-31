@@ -227,3 +227,44 @@ export const notifications = pgTable("notifications", {
   isRead: boolean("is_read").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// Product-feedback pipeline. Ideas are deliberately separate from social posts:
+// they have a lifecycle that admins can manage and a one-vote-per-member signal
+// that can drive a transparent public roadmap.
+export const ideas = pgTable(
+  "ideas",
+  {
+    id: serial("id").primaryKey(),
+    authorId: integer("author_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    authorName: text("author_name").notNull(),
+    authorUsername: text("author_username").notNull(),
+    authorAvatar: text("author_avatar"),
+    title: text("title").notNull(),
+    description: text("description").notNull(),
+    category: text("category").default("Product").notNull(),
+    status: text("status").default("open").notNull(), // open | planned | in_progress | shipped | declined
+    impact: text("impact").default("medium").notNull(), // low | medium | high
+    voteCount: integer("vote_count").default(0).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("ideas_status_idx").on(table.status),
+    index("ideas_category_idx").on(table.category),
+    index("ideas_author_id_idx").on(table.authorId),
+  ]
+);
+
+export const ideaVotes = pgTable(
+  "idea_votes",
+  {
+    id: serial("id").primaryKey(),
+    ideaId: integer("idea_id").references(() => ideas.id, { onDelete: "cascade" }).notNull(),
+    userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("idea_votes_idea_user_unique").on(table.ideaId, table.userId),
+    index("idea_votes_user_id_idx").on(table.userId),
+  ]
+);

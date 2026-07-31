@@ -74,6 +74,26 @@ export interface PostItem {
   pollVotes?: Record<string, number>;
 }
 
+export type IdeaStatus = "open" | "planned" | "in_progress" | "shipped" | "declined";
+export type IdeaImpact = "low" | "medium" | "high";
+
+export interface IdeaItem {
+  id: number;
+  authorId: number;
+  authorName: string;
+  authorUsername: string;
+  authorAvatar: string | null;
+  title: string;
+  description: string;
+  category: string;
+  status: IdeaStatus;
+  impact: IdeaImpact;
+  voteCount: number;
+  hasVoted: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ReferralItem {
   id: number;
   referrerId: number;
