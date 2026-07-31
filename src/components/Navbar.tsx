@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { User } from "@/types";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, Shield, UserCircle2, LogOut, ChevronDown, Copy, Check } from "lucide-react";
+import { Zap, Shield, UserCircle2, LogOut, ChevronDown, Copy, Check, LogIn } from "lucide-react";
 import NotificationBell from "@/components/NotificationBell";
 
 interface Props {
@@ -32,7 +32,7 @@ export default function Navbar({
     { id: "stream", label: "Feed", fullLabel: "Community Feed", icon: "💬" },
     { id: "chat", label: "Groups", fullLabel: "Groups & DMs", icon: "🗨️", badge: "Live" },
     { id: "quests", label: "Quests", fullLabel: "Quests & Streaks", icon: "🎯", badge: "Daily" },
-    { id: "referrals", label: "Referrals", fullLabel: "Referrals & Invites", icon: "🎁", badge: "200 pts" },
+    ...(currentUser ? [{ id: "referrals", label: "Referrals", fullLabel: "Referrals & Invites", icon: "🎁", badge: "200 pts" }] : []),
     { id: "leaderboard", label: "Ranking", fullLabel: "Leaderboard", icon: "👑" },
     { id: "timeline", label: "Activity", fullLabel: "Activity Log", icon: "📈" },
     { id: "rewards", label: "Store", fullLabel: "Rewards Store", icon: "🛍️" },
@@ -57,8 +57,7 @@ export default function Navbar({
   };
 
   return (
-    <header className="sticky top-0 z-40 backdrop-blur-[18px] border-b border-slate-800/80 text-slate-100 shadow-[0_8px_32px_rgba(0,0,0,0.35)]"
-      style={{ background: "linear-gradient(180deg, rgba(15,23,42,0.92), rgba(2,6,23,0.88))" }}>
+    <header className="dashboard-header-surface sticky top-0 z-40 backdrop-blur-[18px] border-b border-slate-800/80 text-slate-100 shadow-[0_8px_32px_rgba(0,0,0,0.35)]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-[68px] gap-4">
           <motion.div
@@ -105,15 +104,26 @@ export default function Navbar({
             transition={{ duration: 0.5, delay: 0.1 }}
             className="flex items-center gap-2 sm:gap-2.5"
           >
-            <NotificationBell userId={currentUser?.id ?? null} realtimeSignal={notificationSignal} />
-
-            <a
-              href="/profile"
-              className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-full bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 text-slate-200 text-xs font-bold transition-all"
-            >
-              <UserCircle2 className="w-4 h-4 text-indigo-400" />
-              <span>My Profile</span>
-            </a>
+            {currentUser ? (
+              <>
+                <NotificationBell userId={currentUser.id} realtimeSignal={notificationSignal} />
+                <a
+                  href="/profile"
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-full bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 text-slate-200 text-xs font-bold transition-all"
+                >
+                  <UserCircle2 className="w-4 h-4 text-indigo-400" />
+                  <span>My Profile</span>
+                </a>
+              </>
+            ) : (
+              <button
+                onClick={() => setActiveTab("auth")}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 text-slate-200 text-xs font-bold transition-all"
+              >
+                <LogIn className="w-4 h-4 text-indigo-400" />
+                <span>Sign In</span>
+              </button>
+            )}
 
             {currentUser && (
               <div className="relative">
