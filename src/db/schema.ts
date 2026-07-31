@@ -300,3 +300,84 @@ export const savedPosts = pgTable(
     index("saved_posts_user_id_idx").on(table.userId),
   ]
 );
+
+// Explicit membership makes community moderation auditable and lets a channel
+// distinguish its moderators from regular members.
+export const communityMemberships = pgTable(
+  "community_memberships",
+  {
+    id: serial("id").primaryKey(),
+    groupId: integer("group_id").references(() => chatGroups.id, { onDelete: "cascade" }).notNull(),
+    userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    role: text("role").default("member").notNull(), // member | moderator
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("community_memberships_group_user_unique").on(table.groupId, table.userId),
+    index("community_memberships_group_id_idx").on(table.groupId),
+    index("community_memberships_user_id_idx").on(table.userId),
+  ]
+);
+
+// One-to-one conversations use sorted participant columns so the same two
+// accounts can never accidentally create duplicate private threads.
+export const directConversations = pgTable(
+  "direct_conversations",
+  {
+    id: serial("id").primaryKey(),
+    participantOneId: integer("participant_one_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    participantTwoId: integer("participant_two_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("direct_conversations_participants_unique").on(table.participantOneId, table.participantTwoId),
+    index("direct_conversations_participant_one_idx").on(table.participantOneId),
+    index("direct_conversations_participant_two_idx").on(table.participantTwoId),
+  ]
+);
+
+export const directMessages = pgTable(
+  "direct_messages",
+  {
+    id: serial("id").primaryKey(),
+    conversationId: integer("conversation_id").references(() => directConversations.id, { onDelete: "cascade" }).notNull(),
+    senderId: integer("sender_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    content: text("content").notNull(),
+    isRead: boolean("is_read").default(false).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("direct_messages_conversation_idx").on(table.conversationId)]
+);
+
+// Live rooms persist room state and participation. Browser media travels over
+// WebRTC; SSE is used only as the authenticated signaling channel.
+export const liveRooms = pgTable(
+  "live_rooms",
+  {
+    id: serial("id").primaryKey(),
+    hostId: integer("host_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    mode: text("mode").default("video").notNull(), // video | audio
+    status: text("status").default("live").notNull(), // live | ended
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    endedAt: timestamp("ended_at"),
+  },
+  (table) => [index("live_rooms_status_created_idx").on(table.status, table.createdAt)]
+);
+
+export const liveRoomParticipants = pgTable(
+  "live_room_participants",
+  {
+    id: serial("id").primaryKey(),
+    roomId: integer("room_id").references(() => liveRooms.id, { onDelete: "cascade" }).notNull(),
+    userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    role: text("role").default("viewer").notNull(), // host | viewer | moderator
+    joinedAt: timestamp("joined_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("live_room_participants_room_user_unique").on(table.roomId, table.userId),
+    index("live_room_participants_room_id_idx").on(table.roomId),
+  ]
+);

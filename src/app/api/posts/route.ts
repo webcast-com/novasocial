@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const category = searchParams.get("category");
+    const media = searchParams.get("media");
     const feed = searchParams.get("feed") || "all";
     const sessionUser = await getSessionUser(request);
 
@@ -19,6 +20,7 @@ export async function GET(request: NextRequest) {
     // query parameter—always determines both collections.
     const filters = [];
     if (category && category !== "All") filters.push(eq(posts.category, category));
+    if (media === "video") filters.push(eq(posts.mediaType, "video"));
 
     if (feed === "following" || feed === "saved") {
       if (!sessionUser) {

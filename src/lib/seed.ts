@@ -18,6 +18,7 @@ import {
   ideaVotes,
   userFollows,
   savedPosts,
+  communityMemberships,
 } from "@/db/schema";
 import { count, eq, isNull } from "drizzle-orm";
 import { hashPassword } from "@/lib/auth";
@@ -584,7 +585,16 @@ export async function ensureNewFeaturesSeeded() {
       }
     }
 
-    // B2. Backfill accounts without a password so they can sign in
+    // B2. Give each seeded community a visible membership and moderator roster.
+    const membershipCount = await db.select({ val: count() }).from(communityMemberships);
+    if ((membershipCount[0]?.val ?? 0) === 0) {
+      const seededGroups = await db.select().from(chatGroups).limit(12);
+      const seededMembers = await db.select().from(users).orderBy(users.id).limit(5);
+      const rows = seededGroups.flatMap((group) => seededMembers.map((member, index) => ({ groupId: group.id, userId: member.id, role: index === 0 || group.createdById === member.id ? "moderator" : "member" })));
+      if (rows.length > 0) await db.insert(communityMemberships).values(rows);
+    }
+
+    // B3. Backfill accounts without a password so they can sign in
     const passwordless = await db.select({ id: users.id }).from(users).where(isNull(users.passwordHash)).limit(500);
     if (passwordless.length > 0) {
       const backfillHash = await hashPassword(SEED_DEMO_PASSWORD);

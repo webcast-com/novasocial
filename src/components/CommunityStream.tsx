@@ -62,7 +62,8 @@ export default function CommunityStream({
 
   // Rich Media states
   const [mediaTypeOption, setMediaTypeOption] = useState<"none" | "image" | "code" | "poll" | "video">("none");
-  const [mediaUrlInput, setMediaUrlInput] = useState("");
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
   const [codeSnippetInput, setCodeSnippetInput] = useState("");
   const [codeLangInput, setCodeLangInput] = useState("javascript");
   const [pollQuestionInput, setPollQuestionInput] = useState("");
@@ -151,10 +152,26 @@ export default function CommunityStream({
     let pollOptionsToSend: string[] | null = null;
 
     if (mediaTypeOption === "image" || mediaTypeOption === "video") {
-      if (mediaUrlInput.trim()) {
-        mediaUrlToSend = mediaUrlInput.trim();
-      } else if (mediaTypeOption === "image") {
-        mediaUrlToSend = "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=600&auto=format&fit=crop&q=80";
+      if (!mediaFile) {
+        onShowToast(`Choose a ${mediaTypeOption} from your device first.`, undefined, true);
+        return;
+      }
+      setUploadingMedia(true);
+      try {
+        const uploadData = new FormData();
+        uploadData.set("file", mediaFile);
+        const uploadRes = await fetch("/api/uploads", { method: "POST", body: uploadData });
+        const upload = await uploadRes.json();
+        if (!upload.success) {
+          onShowToast(upload.error || "Media upload failed.", undefined, true);
+          return;
+        }
+        mediaUrlToSend = upload.url;
+      } catch {
+        onShowToast("Media upload failed. Please try again.", undefined, true);
+        return;
+      } finally {
+        setUploadingMedia(false);
       }
     } else if (mediaTypeOption === "code" && codeSnippetInput.trim()) {
       codeSnippetToSend = codeSnippetInput.trim();
@@ -186,7 +203,7 @@ export default function CommunityStream({
         setShowCreateModal(false);
         setNewTitle("");
         setNewContent("");
-        setMediaUrlInput("");
+        setMediaFile(null);
         setCodeSnippetInput("");
         setMediaTypeOption("none");
         await refreshVisibleFeed();
@@ -582,20 +599,13 @@ export default function CommunityStream({
                     </div>
                   )}
 
-                  {/* Rich Media: Video Embed */}
+                  {/* Rich Media: Device Video */}
                   {post.mediaType === "video" && post.mediaUrl && (
-                    <div className="mt-4 rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-950 p-4">
-                      <div className="flex items-center gap-2 text-xs font-bold text-indigo-400 mb-2">
-                        <Video className="w-4 h-4" /> Video Attachment
+                    <div className="mt-4 overflow-hidden rounded-2xl border border-slate-700/80 bg-slate-950">
+                      <div className="flex items-center gap-2 border-b border-slate-800 px-4 py-2 text-xs font-bold text-indigo-300">
+                        <Video className="w-4 h-4" /> Device video attachment
                       </div>
-                      <a
-                        href={post.mediaUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm font-semibold text-slate-200 underline break-all"
-                      >
-                        {post.mediaUrl}
-                      </a>
+                      <video src={post.mediaUrl} controls playsInline preload="metadata" className="max-h-[520px] w-full bg-black" />
                     </div>
                   )}
 
@@ -947,17 +957,21 @@ export default function CommunityStream({
                 </div>
 
                 {(mediaTypeOption === "image" || mediaTypeOption === "video") && (
-                  <input
-                    type="url"
-                    value={mediaUrlInput}
-                    onChange={(e) => setMediaUrlInput(e.target.value)}
-                    placeholder={
-                      mediaTypeOption === "image"
-                        ? "Paste image URL (https://…) — leave blank for a demo image"
-                        : "Paste video URL (YouTube, Loom, Vimeo…)"
-                    }
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
-                  />
+                  <label className="block rounded-xl border border-dashed border-indigo-500/50 bg-indigo-500/5 p-3.5 text-center transition hover:bg-indigo-500/10 cursor-pointer">
+                    <input
+                      type="file"
+                      accept={mediaTypeOption === "image" ? "image/jpeg,image/png,image/webp,image/gif" : "video/mp4,video/webm,video/quicktime"}
+                      onChange={(e) => setMediaFile(e.target.files?.[0] || null)}
+                      className="sr-only"
+                    />
+                    <span className="flex items-center justify-center gap-2 text-xs font-bold text-indigo-200">
+                      {mediaTypeOption === "image" ? <ImageIcon className="w-4 h-4" /> : <Video className="w-4 h-4" />}
+                      {mediaFile ? mediaFile.name : `Choose ${mediaTypeOption} from device`}
+                    </span>
+                    <span className="mt-1 block text-[10px] text-slate-400">
+                      {mediaTypeOption === "image" ? "JPG, PNG, WebP or GIF · up to 10 MB" : "MP4, WebM or MOV · up to 45 MB"}
+                    </span>
+                  </label>
                 )}
 
                 {mediaTypeOption === "code" && (
@@ -1035,10 +1049,10 @@ export default function CommunityStream({
                 </button>
                 <button
                   type="submit"
-                  disabled={posting}
+                  disabled={posting || uploadingMedia}
                   className="px-7 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:opacity-95 font-extrabold text-sm text-white rounded-2xl shadow-lg shadow-indigo-600/30 transition-all disabled:opacity-50 flex items-center gap-2"
                 >
-                  {posting ? "Publishing..." : "Publish Now ✨"}
+                  {uploadingMedia ? "Uploading media…" : posting ? "Publishing..." : "Publish Now ✨"}
                 </button>
               </div>
             </form>

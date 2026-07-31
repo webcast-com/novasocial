@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useRealtime } from "@/hooks/useRealtime";
+import CommunityRoster from "@/components/CommunityRoster";
 
 interface Props {
   currentUser: User | null;
@@ -294,6 +295,7 @@ export default function CommunityChat({ currentUser, allUsers, onReward, onShowT
                   <span>+15 pts / msg</span>
                 </div>
               </div>
+              <CommunityRoster groupId={selectedGroup.id} currentUser={currentUser} onShowToast={onShowToast} />
 
               {/* Messages Body */}
               <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-2 custom-scrollbar">

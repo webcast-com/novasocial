@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { chatGroups, chatMessages } from "@/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { chatGroups, chatMessages, communityMemberships } from "@/db/schema";
+import { and, desc, eq } from "drizzle-orm";
 import { awardPoints } from "@/lib/gamification";
 import { publish } from "@/lib/realtime";
 import { requireUser } from "@/lib/auth";
@@ -54,6 +54,10 @@ export async function POST(request: NextRequest) {
       if (content.trim().length > 2000) {
         return NextResponse.json({ success: false, error: "Message is too long (max 2000 characters)." }, { status: 400 });
       }
+      const membership = await db.select({ id: communityMemberships.id }).from(communityMemberships).where(and(eq(communityMemberships.groupId, Number(groupId)), eq(communityMemberships.userId, sender.id))).limit(1);
+      if (membership.length === 0) {
+        return NextResponse.json({ success: false, error: "Join this community before posting in its chat." }, { status: 403 });
+      }
 
       const insertedMsg = await db
         .insert(chatMessages)
@@ -105,6 +109,8 @@ export async function POST(request: NextRequest) {
           createdById: sender.id,
         })
         .returning();
+
+      await db.insert(communityMemberships).values({ groupId: insertedGroup[0].id, userId: sender.id, role: "moderator" });
 
       return NextResponse.json({
         success: true,

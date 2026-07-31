@@ -6,6 +6,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import Navbar from "@/components/Navbar";
 import NotificationToast, { RewardToastData } from "@/components/NotificationToast";
 import CommunityStream from "@/components/CommunityStream";
+import ReelsFeed from "@/components/ReelsFeed";
+import PrivateMessages from "@/components/PrivateMessages";
+import LiveBroadcast from "@/components/LiveBroadcast";
 import IdeasHub from "@/components/IdeasHub";
 import ReferralHub from "@/components/ReferralHub";
 import LeaderboardView from "@/components/LeaderboardView";
@@ -301,6 +304,9 @@ export default function Home() {
               </motion.div>
 
               {activeTab === "stream" && <CommunityStream currentUser={currentUser} posts={posts} onRefreshPosts={fetchPosts} onReward={handleReward} onShowToast={(msg, pts, err) => addToast(msg, pts, err)} />}
+              {activeTab === "reels" && <ReelsFeed currentUser={currentUser} onOpenFeed={() => setActiveTab("stream")} onShowToast={(msg, pts, err) => addToast(msg, pts, err)} />}
+              {activeTab === "messages" && <PrivateMessages currentUser={currentUser} allUsers={allUsers} onShowToast={(msg, pts, err) => addToast(msg, pts, err)} />}
+              {activeTab === "live" && <LiveBroadcast currentUser={currentUser} onShowToast={(msg, pts, err) => addToast(msg, pts, err)} />}
               {activeTab === "ideas" && <IdeasHub currentUser={currentUser} refreshSignal={ideaSignal} onReward={handleReward} onShowToast={(msg, pts, err) => addToast(msg, pts, err)} />}
               {activeTab === "chat" && <CommunityChat currentUser={currentUser} allUsers={allUsers} onReward={handleReward} onShowToast={(msg, pts, err) => addToast(msg, pts, err)} />}
               {activeTab === "quests" && <QuestsAndStreaks currentUser={currentUser} onReward={handleReward} onShowToast={(msg, pts, err) => addToast(msg, pts, err)} />}

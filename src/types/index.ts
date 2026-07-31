@@ -222,6 +222,49 @@ export interface FlashEventItem {
   updatedAt: string;
 }
 
+export interface DirectConversationItem {
+  id: number;
+  participantOneId: number;
+  participantTwoId: number;
+  updatedAt: string;
+  createdAt: string;
+  partner: Pick<User, "id" | "name" | "username" | "avatarUrl">;
+  lastMessage?: string | null;
+  unreadCount?: number;
+}
+
+export interface DirectMessageItem {
+  id: number;
+  conversationId: number;
+  senderId: number;
+  content: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface CommunityMemberItem {
+  id: number;
+  groupId: number;
+  userId: number;
+  role: "member" | "moderator";
+  createdAt: string;
+  user: Pick<User, "id" | "name" | "username" | "avatarUrl" | "role">;
+}
+
+export interface LiveRoomItem {
+  id: number;
+  hostId: number;
+  title: string;
+  description: string | null;
+  mode: "video" | "audio";
+  status: "live" | "ended";
+  createdAt: string;
+  endedAt: string | null;
+  host: Pick<User, "id" | "name" | "username" | "avatarUrl">;
+  viewerCount: number;
+  isJoined?: boolean;
+}
+
 export interface NotificationItem {
   id: number;
   userId: number;
